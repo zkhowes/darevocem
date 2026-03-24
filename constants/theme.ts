@@ -12,6 +12,8 @@ export interface ThemeColors {
   success: string;
   disabled: string;
   phraseBarBorder: string;
+  savedAccent: string;
+  savedAccentFaded: string;
 }
 
 const lightColors: ThemeColors = {
@@ -26,6 +28,8 @@ const lightColors: ThemeColors = {
   success: '#27AE60',
   disabled: '#D5D5D0',
   phraseBarBorder: '#2B7A78',
+  savedAccent: '#7B68AE',
+  savedAccentFaded: 'rgba(123, 104, 174, 0.15)',
 };
 
 const darkColors: ThemeColors = {
@@ -40,6 +44,8 @@ const darkColors: ThemeColors = {
   success: '#27AE60',
   disabled: '#3A3A3A',
   phraseBarBorder: '#3AAFA9',
+  savedAccent: '#9B88CE',
+  savedAccentFaded: 'rgba(155, 136, 206, 0.15)',
 };
 
 export function getThemeColors(mode: ThemeMode): ThemeColors {

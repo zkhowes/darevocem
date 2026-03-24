@@ -51,6 +51,25 @@ export interface ComposeItem {
   isDynamic?: boolean;
 }
 
+export interface WheelPickerItem {
+  id: string;
+  text: string;
+  itemType: 'prediction' | 'common' | 'saved';
+  color: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PredictionHistoryEntry {
+  predictions: ComposeItem[];
+  slot: string;
+}
+
+export interface ModifierState {
+  targetItem: string;
+  modifiers: string[];
+  currentIndex: number;
+}
+
 export interface CompositionState {
   sessionId: string;
   intent: string | null;
@@ -93,7 +112,7 @@ export interface UsageEvent {
   created_at?: string;
 }
 
-export type StepAction = 'select' | 'reject' | 'refine' | 'modify' | 'undo' | 'redo' | 'focus_change';
+export type StepAction = 'select' | 'reject' | 'refine' | 'modify' | 'undo' | 'redo' | 'focus_change' | 'advance' | 'backtrack' | 'diverge';
 
 export interface SessionStep {
   action: StepAction;

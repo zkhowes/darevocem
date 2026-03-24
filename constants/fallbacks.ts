@@ -10,3 +10,5 @@ export const FALLBACK_PREDICTIONS: Record<string, string[]> = {
   'Help':      ['me', 'please', 'I need help', 'someone help'],
   'Question':  ['what time is it', 'who is here', 'what day is it', 'when is my appointment'],
 };
+
+export const FALLBACK_MODIFIERS: string[] = ['and', 'or', 'with', 'but', 'then', 'not'];

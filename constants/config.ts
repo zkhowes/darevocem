@@ -26,6 +26,10 @@ export const LAYOUT = {
   screenPadding: 20,
   focusBorderWidth: 4,
   focusScale: 1.02,
+  wheelPickerFocusedHeight: 120,
+  wheelPickerItemHeight: 72,
+  wheelPickerFocusedFontSize: 32,
+  wheelPickerItemFontSize: 22,
 } as const;
 
 export const TYPOGRAPHY = {
