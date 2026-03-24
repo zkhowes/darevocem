@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { PhraseSection } from './PhraseSection';
 import { ErrorBoundary } from '../shared/ErrorBoundary';
+import { OfflineBanner } from '../shared/OfflineBanner';
 import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
 
 interface SectionLayoutProps {
@@ -33,6 +34,9 @@ export function SectionLayout({
             <Text style={styles.navIcon}>@</Text>
           </Pressable>
         </View>
+
+        {/* Offline indicator — shows amber banner when network is unavailable */}
+        <OfflineBanner />
 
         {/* Section 2: Header (Intent or Category) */}
         <View style={styles.header}>
