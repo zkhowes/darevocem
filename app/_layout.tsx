@@ -3,6 +3,7 @@ import { Slot, useRouter, useSegments } from 'expo-router';
 import { useAuthStore } from '../stores/auth';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { TIMING } from '../constants/config';
+import { ErrorBoundary } from '../components/shared/ErrorBoundary';
 
 export default function RootLayout() {
   const { session, isLoading, initialize, cleanup } = useAuthStore();
@@ -43,7 +44,11 @@ export default function RootLayout() {
     );
   }
 
-  return <Slot />;
+  return (
+    <ErrorBoundary>
+      <Slot />
+    </ErrorBoundary>
+  );
 }
 
 const styles = StyleSheet.create({
