@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Dare Vocem",
+    "slug": "darevocem",
+    "version": "1.0.0",
+    "scheme": "darevocem",
+    "platforms": ["ios"],
+    "ios": {
+      "bundleIdentifier": "fun.zkhowes.darevocem",
+      "supportsTablet": false
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
