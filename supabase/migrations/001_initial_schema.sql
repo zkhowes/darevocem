@@ -109,18 +109,26 @@ create policy "Admin reads all profiles"
 -- === saved_phrases policies ===
 
 create policy "Users manage own saved_phrases"
-  on saved_phrases for all using (auth.uid() = user_id);
+  on saved_phrases for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 create policy "Admin manages all saved_phrases"
-  on saved_phrases for all using (is_admin());
+  on saved_phrases for all
+  using (is_admin())
+  with check (is_admin());
 
 -- === common_items policies ===
 
 create policy "Users manage own common_items"
-  on common_items for all using (auth.uid() = user_id);
+  on common_items for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 create policy "Admin manages all common_items"
-  on common_items for all using (is_admin());
+  on common_items for all
+  using (is_admin())
+  with check (is_admin());
 
 -- === usage_events policies ===
 
@@ -147,7 +155,9 @@ create policy "Admin reads all session_traces"
 -- === preferences policies ===
 
 create policy "Users manage own preferences"
-  on preferences for all using (auth.uid() = user_id);
+  on preferences for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 create policy "Admin reads all preferences"
   on preferences for select using (is_admin());

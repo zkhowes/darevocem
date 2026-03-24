@@ -2,14 +2,25 @@ import { useEffect } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { useAuthStore } from '../stores/auth';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { TIMING } from '../constants/config';
 
 export default function RootLayout() {
-  const { session, isLoading, initialize } = useAuthStore();
+  const { session, isLoading, initialize, cleanup } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    initialize();
+    // Fall back to login if Supabase is unreachable
+    const timeout = setTimeout(() => {
+      useAuthStore.setState({ isLoading: false });
+    }, TIMING.apiTimeoutMs);
+
+    initialize().finally(() => clearTimeout(timeout));
+
+    return () => {
+      clearTimeout(timeout);
+      cleanup();
+    };
   }, []);
 
   useEffect(() => {
@@ -18,11 +29,9 @@ export default function RootLayout() {
     const inAuthGroup = segments[0] === '(app)';
 
     if (!session && inAuthGroup) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      router.replace('/login' as any);
+      router.replace('/login' as never);
     } else if (session && !inAuthGroup) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      router.replace('/(app)' as any);
+      router.replace('/(app)' as never);
     }
   }, [session, isLoading, segments]);
 
