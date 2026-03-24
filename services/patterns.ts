@@ -5,7 +5,7 @@ import { useCompositionStore } from '../stores/composition';
 
 /**
  * Logs a single interaction event to Supabase.
- * Every Amanda interaction feeds the pattern learning pipeline —
+ * Every interaction feeds the pattern learning pipeline —
  * this is not optional telemetry, it's the core learning mechanism.
  */
 export async function logUsageEvent(
@@ -43,7 +43,7 @@ export async function logUsageEvent(
 
 /**
  * Saves the full session trace when a phrase composition session ends.
- * Captures the complete path Amanda took: every selection, rejection,
+ * Captures the complete path the user took: every selection, rejection,
  * refinement, and undo — plus timing metrics for future analysis.
  */
 export async function saveSessionTrace(): Promise<void> {

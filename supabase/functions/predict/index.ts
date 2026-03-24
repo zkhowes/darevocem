@@ -13,7 +13,7 @@ const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-const SYSTEM_PROMPT = `You predict the next word or phrase in a sentence being composed by Amanda, who has aphasia. She selects an intent, then you predict what comes next for each slot.
+const SYSTEM_PROMPT = `You predict the next word or phrase in a sentence being composed by a person with aphasia. They select an intent, then you predict what comes next for each slot.
 
 Rules:
 - Return ONLY valid JSON. No markdown, no explanation.
@@ -21,7 +21,7 @@ Rules:
 - Predictions: 1-4 words. Use natural phrases ("coffee and cream") not just single words when a phrase is more natural.
 - Consider the intent type for filtering.
 - Be warm, direct, practical. Casual speech.
-- Weight Amanda's personal patterns heavily — her history matters more than general language probability.
+- Weight the user's personal patterns heavily — their history matters more than general language probability.
 
 JSON format:
 {"predictions": [{"text": "water", "type": "object"}, {"text": "help", "type": "object"}]}`;
@@ -80,7 +80,7 @@ Return ONLY valid JSON: {"modifiers": ["and", "or", "with"]}`;
       return new Response(JSON.stringify({ modifiers: parsed.modifiers ?? [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // Pull Amanda's recent selections for this intent + time of day to weight predictions
+    // Pull user's recent selections for this intent + time of day to weight predictions
     const { data: patterns } = await supabase
       .from('usage_events')
       .select('item_text, event_type')
@@ -106,7 +106,7 @@ Return ONLY valid JSON: {"modifiers": ["and", "or", "with"]}`;
 Phrase so far: "${currentPhrase.join(' ')}"
 Predict the next ${currentSlot}.
 
-Amanda's patterns:
+User patterns:
 - Time of day: ${sessionContext.timeOfDay}
 - Top selections for "${intent}" at this time: ${topSelections.join(', ') || 'none yet'}
 - Recent session selections: ${sessionContext.recentSelections?.join(', ') || 'none'}

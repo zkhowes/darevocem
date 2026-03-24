@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
 import { useAuthStore } from '../stores/auth';
 import { LAYOUT } from '../constants/config';
 
@@ -21,8 +21,10 @@ export default function LoginScreen() {
     try {
       setError(null);
       await signInWithGoogle();
-    } catch {
-      setError('Sign in failed. Please try again.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      Alert.alert('Sign in error', msg);
     }
   };
 
