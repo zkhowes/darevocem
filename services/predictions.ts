@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { FALLBACK_PREDICTIONS } from '../constants/fallbacks';
+import { FALLBACK_PREDICTIONS, FALLBACK_MODIFIERS } from '../constants/fallbacks';
 import { generateId } from '../types';
 import type { ComposeItem, TimeOfDay } from '../types';
 
@@ -40,6 +40,7 @@ export async function getPredictions(
   timeOfDay: TimeOfDay,
   recentSelections: string[],
   recentRejections: string[],
+  triedPaths?: string[][],
 ): Promise<ComposeItem[]> {
   try {
     const { data, error } = await supabase.functions.invoke('predict', {
@@ -48,6 +49,7 @@ export async function getPredictions(
         currentPhrase,
         currentSlot,
         sessionContext: { timeOfDay, recentSelections, recentRejections },
+        triedPaths: triedPaths ?? [],
       },
     });
 
@@ -73,33 +75,31 @@ export async function getPredictions(
 }
 
 /**
- * Returns alternative predictions excluding the item Amanda already rejected.
- * Currently served from curated fallbacks; will use the Edge Function in a
- * future task when the refinement slot type is wired up.
- */
-export async function getRefinements(
-  intent: string,
-  currentPhrase: string[],
-  originalItem: string,
-): Promise<ComposeItem[]> {
-  // Filter out the item being replaced so Amanda always sees new options
-  return fallbacksForIntent(intent).filter((p) => p.text !== originalItem);
-}
-
-/**
- * Returns modifier extensions for a selected item ("coffee and...", "coffee with...").
- * These let Amanda append nuance to a word she's already chosen.
+ * Returns connector/modifier words for a selected item ("and", "or", "with"...).
+ * Returns plain string[] — these are connector words, not selectable ComposeItems.
+ * Routes through the Edge Function; falls back to FALLBACK_MODIFIERS on any error.
  */
 export async function getModifiers(
   intent: string,
   currentPhrase: string[],
   targetItem: string,
-): Promise<ComposeItem[]> {
-  const modifiers = [`${targetItem} and...`, `${targetItem} with...`, `${targetItem} but...`];
-  return modifiers.map((text, i) => ({
-    id: generateId(),
-    text,
-    itemType: 'prediction' as const,
-    rank: i,
-  }));
+): Promise<string[]> {
+  try {
+    const { data, error } = await supabase.functions.invoke('predict', {
+      body: {
+        intent,
+        currentPhrase,
+        targetItem,
+        requestType: 'modifiers',
+      },
+    });
+
+    if (error || !data || !data.modifiers || data.modifiers.length === 0) {
+      return FALLBACK_MODIFIERS;
+    }
+
+    return data.modifiers as string[];
+  } catch {
+    return FALLBACK_MODIFIERS;
+  }
 }

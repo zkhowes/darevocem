@@ -42,6 +42,43 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json();
     const { intent, currentPhrase, currentSlot, sessionContext } = body;
+    const { requestType, targetItem, triedPaths } = body;
+
+    // 2-second budget — if Claude is slow, fall back to curated defaults on the client
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+
+    // Modifier requests are lightweight — bypass the pattern lookup and main prediction flow
+    if (requestType === 'modifiers') {
+      const modifierMessage = `For the word "${targetItem}" in the context of "${intent} ${currentPhrase.join(' ')}", suggest 4-6 modifier/connector words ranked by probability (e.g., "and", "or", "with", "but").
+
+Return ONLY valid JSON: {"modifiers": ["and", "or", "with"]}`;
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 100,
+          temperature: 0.5,
+          messages: [{ role: 'user', content: modifierMessage }],
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+      if (!response.ok) {
+        return new Response(JSON.stringify({ modifiers: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const result = await response.json();
+      const content = result.content?.[0]?.text ?? '{"modifiers": []}';
+      const parsed = JSON.parse(content);
+      return new Response(JSON.stringify({ modifiers: parsed.modifiers ?? [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
 
     // Pull Amanda's recent selections for this intent + time of day to weight predictions
     const { data: patterns } = await supabase
@@ -59,6 +96,12 @@ Deno.serve(async (req: Request) => {
       .filter(Boolean)
       .slice(0, 5) ?? [];
 
+    // When Amanda has exhausted her history and backed all the way up, triedPaths
+    // tells Claude which directions she already rejected so it suggests genuinely new options.
+    const triedPathsStr = triedPaths && triedPaths.length > 0
+      ? `\n- Paths already tried and rejected: ${triedPaths.map((p: string[]) => p.join(' → ')).join('; ')}`
+      : '';
+
     const userMessage = `Intent: "${intent}"
 Phrase so far: "${currentPhrase.join(' ')}"
 Predict the next ${currentSlot}.
@@ -67,11 +110,7 @@ Amanda's patterns:
 - Time of day: ${sessionContext.timeOfDay}
 - Top selections for "${intent}" at this time: ${topSelections.join(', ') || 'none yet'}
 - Recent session selections: ${sessionContext.recentSelections?.join(', ') || 'none'}
-- Recently rejected: ${sessionContext.recentRejections?.join(', ') || 'none'}`;
-
-    // 2-second budget — if Claude is slow, fall back to curated defaults on the client
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
+- Recently rejected: ${sessionContext.recentRejections?.join(', ') || 'none'}${triedPathsStr}`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

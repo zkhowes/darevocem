@@ -31,7 +31,7 @@ jest.mock('../services/supabase', () => ({
   },
 }));
 
-import { getPredictions, getRefinements, getModifiers } from '../services/predictions';
+import { getPredictions, getModifiers } from '../services/predictions';
 import { FALLBACK_PREDICTIONS } from '../constants/fallbacks';
 import { supabase } from '../services/supabase';
 
@@ -151,46 +151,18 @@ describe('getPredictions — fallback matches constants/fallbacks.ts', () => {
   });
 });
 
-// ─── getRefinements ───────────────────────────────────────────────────────────
-
-describe('getRefinements', () => {
-  it('returns alternatives excluding the original item', async () => {
-    const result = await getRefinements('I need', ['I need'], 'water');
-    const texts = result.map((r) => r.text);
-    expect(texts).not.toContain('water');
-    // Should still return some items
-    expect(result.length).toBeGreaterThan(0);
-  });
-
-  it('returns ComposeItem[] with correct shape', async () => {
-    const result = await getRefinements('I want', [], 'coffee');
-    result.forEach((item) => {
-      expect(item).toHaveProperty('id');
-      expect(item).toHaveProperty('text');
-      expect(item).toHaveProperty('itemType', 'prediction');
-      expect(item).toHaveProperty('rank');
-    });
-  });
-});
-
 // ─── getModifiers ─────────────────────────────────────────────────────────────
 
-describe('getModifiers', () => {
-  it('returns extensions for a given item', async () => {
-    const result = await getModifiers('I need', ['I need'], 'water');
-    expect(result.length).toBeGreaterThan(0);
-    // At least one modifier should reference the target item
-    const texts = result.map((r) => r.text);
-    expect(texts.some((t) => t.includes('water'))).toBe(true);
+describe('getModifiers — fallback', () => {
+  it('returns string[] of modifier words, not ComposeItem[]', async () => {
+    const result = await getModifiers('I need', ['water'], 'coffee');
+    expect(typeof result[0]).toBe('string');
+    expect(result).toContain('and');
   });
 
-  it('returns ComposeItem[] with correct shape', async () => {
+  it('returns at least 3 fallback modifiers', async () => {
     const result = await getModifiers('I want', [], 'coffee');
-    result.forEach((item) => {
-      expect(item).toHaveProperty('id');
-      expect(item).toHaveProperty('text');
-      expect(item).toHaveProperty('itemType', 'prediction');
-      expect(item).toHaveProperty('rank');
-    });
+    expect(result.length).toBeGreaterThanOrEqual(3);
+    result.forEach((m) => expect(typeof m).toBe('string'));
   });
 });
