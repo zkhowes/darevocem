@@ -16,7 +16,7 @@ interface FocusStore {
 }
 
 export const useFocusStore = create<FocusStore>((set, get) => ({
-  section: 'intent',
+  section: 'compose' as FocusSection,
   composeIndex: 0,
   composeListSize: 0,
   previousComposeIndex: 0,
@@ -46,9 +46,8 @@ export const useFocusStore = create<FocusStore>((set, get) => ({
     } else if (section === 'compose') {
       if (composeIndex > 0) {
         set({ composeIndex: composeIndex - 1 });
-      } else {
-        set({ section: 'intent' });
       }
+      // At index 0 + moveUp: screen handles (expand intent bar or navigate home)
     }
     // intent + moveUp = navigate home — handled by the screen, not the focus store
   },
@@ -61,7 +60,7 @@ export const useFocusStore = create<FocusStore>((set, get) => ({
   setComposeIndex: (index) => set({ composeIndex: index }),
 
   reset: () => set({
-    section: 'intent',
+    section: 'compose',
     composeIndex: 0,
     previousComposeIndex: 0,
   }),
