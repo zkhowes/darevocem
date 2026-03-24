@@ -98,7 +98,8 @@ See `docs/superpowers/specs/2026-03-23-darevocem-design.md` for the authoritativ
 app/
   _layout.tsx                     # Root layout, auth guard, error boundary
   login.tsx                       # Google Sign-In (Apple Sign-In MVP 1.2)
-  (tabs)/
+  (app)/
+    _layout.tsx                   # Stack navigator (no tab bar)
     index.tsx                     # Home — 4 flow cards
     compose.tsx                   # Compose screen (Predicted flow)
     common.tsx                    # Common items screen
