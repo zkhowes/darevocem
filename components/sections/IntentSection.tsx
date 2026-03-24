@@ -11,12 +11,19 @@ import type { GestureAction, TimeOfDay } from '../../types';
 interface IntentSectionProps {
   onNavigateHome: () => void;
   timeOfDay: TimeOfDay;
+  collapsed?: boolean;
+  onExpand?: () => void;
+  initialIntent?: string;
 }
 
-export function IntentSection({ onNavigateHome, timeOfDay }: IntentSectionProps) {
-  const [intentIndex, setIntentIndex] = useState(
-    () => DEFAULT_INTENT_BY_TIME[timeOfDay] ?? 0,
-  );
+export function IntentSection({ onNavigateHome, timeOfDay, collapsed, onExpand, initialIntent }: IntentSectionProps) {
+  const [intentIndex, setIntentIndex] = useState(() => {
+    if (initialIntent) {
+      const idx = INTENTS.findIndex((i) => i.text === initialIntent);
+      return idx >= 0 ? idx : DEFAULT_INTENT_BY_TIME[timeOfDay] ?? 0;
+    }
+    return DEFAULT_INTENT_BY_TIME[timeOfDay] ?? 0;
+  });
 
   const setIntent = useCompositionStore((s) => s.setIntent);
   const incrementCycleCount = useCompositionStore((s) => s.incrementIntentCycleCount);
@@ -40,6 +47,14 @@ export function IntentSection({ onNavigateHome, timeOfDay }: IntentSectionProps)
   }, [currentIntent.text, setIntent, setSection]);
 
   const handleAction = (action: GestureAction) => {
+    // In collapsed mode, only tap and swipe-up expand the section
+    if (collapsed) {
+      if (action.type === 'tap' || (action.type === 'swipe' && action.direction === 'up')) {
+        onExpand?.();
+      }
+      return;
+    }
+
     switch (action.type) {
       case 'swipe':
         switch (action.direction) {
@@ -63,6 +78,16 @@ export function IntentSection({ onNavigateHome, timeOfDay }: IntentSectionProps)
         break;
     }
   };
+
+  // Collapsed: render a compact bar showing the current intent
+  if (collapsed) {
+    return (
+      <GestureArea onAction={handleAction} style={styles.collapsedContainer}>
+        <Text style={styles.collapsedLabel}>Intent: </Text>
+        <Text style={styles.collapsedText}>{currentIntent.text}</Text>
+      </GestureArea>
+    );
+  }
 
   return (
     <GestureArea onAction={handleAction} style={styles.container}>
@@ -90,5 +115,24 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.header.size,
     fontWeight: TYPOGRAPHY.header.weight,
     color: '#1A1A1A',
+  },
+  collapsedContainer: {
+    height: 44,
+    justifyContent: 'center',
+    paddingHorizontal: LAYOUT.screenPadding,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(224, 123, 46, 0.1)',
+    borderRadius: 8,
+    marginHorizontal: LAYOUT.screenPadding,
+  },
+  collapsedLabel: {
+    fontSize: 14,
+    color: '#6B6B6B',
+  },
+  collapsedText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#E07B2E',
   },
 });
