@@ -1,162 +1,187 @@
-import React, { useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
-import { GestureArea } from '../gestures/GestureArea';
-import { FocusIndicator } from '../shared/FocusIndicator';
+import React, { useCallback } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { WheelPicker } from '../shared/WheelPicker';
 import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
-import type { GestureAction, ComposeItem } from '../../types';
 import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
+import type { GestureAction, ComposeItem, WheelPickerItem } from '../../types';
 
 interface ComposeSectionProps {
-  onRefine: (item: ComposeItem) => void;
-  onModify: (item: ComposeItem) => void;
+  onAdvance: (item: ComposeItem) => void;
+  onBacktrack: () => void;
+  onDiverge: () => void;
+  onModifierTap: (item: ComposeItem) => void;
 }
 
-export function ComposeSection({ onRefine, onModify }: ComposeSectionProps) {
+export function ComposeSection({ onAdvance, onBacktrack, onDiverge, onModifierTap }: ComposeSectionProps) {
   const predictions = useCompositionStore((s) => s.predictions);
   const isLoading = useCompositionStore((s) => s.isLoading);
   const addSlot = useCompositionStore((s) => s.addSlot);
   const addEvent = useCompositionStore((s) => s.addEvent);
+  const modifierState = useCompositionStore((s) => s.modifierState);
+  const predictionHistory = useCompositionStore((s) => s.predictionHistory);
 
   const composeIndex = useFocusStore((s) => s.composeIndex);
-  const moveDown = useFocusStore((s) => s.moveDown);
-  const moveUp = useFocusStore((s) => s.moveUp);
+  const setComposeIndex = useFocusStore((s) => s.setComposeIndex);
   const setComposeListSize = useFocusStore((s) => s.setComposeListSize);
   const section = useFocusStore((s) => s.section);
+  const moveDown = useFocusStore((s) => s.moveDown);
 
-  // Keep focus store in sync with the current prediction list size
-  useEffect(() => {
+  React.useEffect(() => {
     setComposeListSize(predictions.length);
   }, [predictions.length]);
 
-  const handleItemAction = (action: GestureAction, item: ComposeItem, index: number) => {
-    // Only handle gestures when this section is focused
-    if (section !== 'compose') return;
+  // Convert ComposeItems to WheelPickerItems
+  const wheelItems: WheelPickerItem[] = predictions.map((p) => ({
+    id: p.id,
+    text: p.text,
+    itemType: p.itemType === 'recent' ? 'prediction' : p.itemType,
+    color: p.itemType === 'common' ? '#2B7A78' : p.itemType === 'saved' ? '#7B68AE' : '#E07B2E',
+    metadata: { rank: p.rank, value: p.value, label: p.label },
+  }));
 
-    switch (action.type) {
-      case 'swipe':
-        switch (action.direction) {
-          case 'down': moveDown(); break;
-          case 'up': moveUp(); break;
-          case 'right':
-            // Swipe right = refine — open the modifier/refinement flow for this item
-            onRefine(item);
-            addEvent({
-              action: 'refine',
-              item_text: item.text,
-              item_type: item.itemType,
-              item_rank: index,
-              phrase_state: useCompositionStore.getState().getPhrase(),
-              timestamp_ms: Date.now() - useCompositionStore.getState().startedAt,
-            });
-            break;
-          case 'left': {
-            // Swipe left = reject — remove this prediction from the list
-            const newPredictions = predictions.filter((_, i) => i !== index);
-            useCompositionStore.getState().setPredictions(newPredictions);
-            addEvent({
-              action: 'reject',
-              item_text: item.text,
-              item_type: item.itemType,
-              item_rank: index,
-              phrase_state: useCompositionStore.getState().getPhrase(),
-              timestamp_ms: Date.now() - useCompositionStore.getState().startedAt,
-            });
-            break;
-          }
-        }
-        break;
-      case 'double-tap':
-        // Double-tap = select — add this word/phrase to the composition
-        addSlot(item.value ?? item.text);
+  const handleFocusChange = useCallback((index: number) => {
+    setComposeIndex(index);
+    useCompositionStore.getState().clearModifier();
+  }, [setComposeIndex]);
+
+  const handleGesture = useCallback(
+    (gesture: GestureAction, item: WheelPickerItem, index: number) => {
+      if (section !== 'compose') return;
+
+      const prediction = predictions[index];
+      if (!prediction) return;
+
+      const logEvent = (action: string) => {
+        const state = useCompositionStore.getState();
         addEvent({
-          action: 'select',
+          action: action as any,
           item_text: item.text,
-          item_type: item.itemType,
+          item_type: prediction.itemType,
           item_rank: index,
-          phrase_state: useCompositionStore.getState().getPhrase(),
-          timestamp_ms: Date.now() - useCompositionStore.getState().startedAt,
+          phrase_state: state.getPhrase(),
+          timestamp_ms: Date.now() - state.startedAt,
         });
-        break;
-      case 'tap':
-        // Single tap = modify — open the keyboard/edit flow for this item
-        onModify(item);
-        break;
-      case 'long-press':
-        // Context menu (Task 15)
-        break;
-    }
-  };
+      };
 
-  const renderItem = ({ item, index }: { item: ComposeItem; index: number }) => (
-    <GestureArea
-      onAction={(action) => handleItemAction(action, item, index)}
-      style={styles.itemWrapper}
-    >
-      <FocusIndicator
-        isFocused={section === 'compose' && composeIndex === index}
-        isTopPrediction={index === 0 && item.itemType === 'prediction'}
-        style={styles.item}
-      >
-        {/* Short type label (P = prediction, C = common, R = recent) + 1-based rank */}
-        <Text style={styles.itemLabel}>
-          {item.itemType === 'prediction' ? 'P' : item.itemType === 'common' ? 'C' : 'R'}
-          {index + 1}:{' '}
-        </Text>
-        <Text style={styles.itemText}>{item.text}</Text>
-      </FocusIndicator>
-    </GestureArea>
+      switch (gesture.type) {
+        case 'swipe':
+          switch (gesture.direction) {
+            case 'right':
+              onAdvance(prediction);
+              logEvent('advance');
+              break;
+            case 'left':
+              if (predictionHistory.length > 0) {
+                onBacktrack();
+                logEvent('backtrack');
+              } else {
+                onDiverge();
+                logEvent('diverge');
+              }
+              break;
+            case 'down':
+              if (index === predictions.length - 1) {
+                moveDown();
+              }
+              break;
+          }
+          break;
+        case 'double-tap':
+          addSlot(prediction.value ?? prediction.text);
+          logEvent('select');
+          break;
+        case 'tap':
+          onModifierTap(prediction);
+          break;
+        case 'long-press':
+          // Context menu (future)
+          break;
+      }
+    },
+    [section, predictions, predictionHistory.length, onAdvance, onBacktrack, onDiverge, onModifierTap, addSlot, addEvent, moveDown],
   );
 
-  // Shimmer skeleton while predictions are loading
+  const renderItem = useCallback(
+    (item: WheelPickerItem, isFocused: boolean) => {
+      const displayText = isFocused && modifierState && modifierState.targetItem === item.text
+        ? useCompositionStore.getState().getModifierDisplayText() ?? item.text
+        : item.text;
+
+      return (
+        <View style={styles.itemContent}>
+          <Text style={[
+            styles.itemLabel,
+            isFocused && styles.focusedLabel,
+          ]}>
+            {item.itemType === 'prediction' ? 'P' : item.itemType === 'common' ? 'C' : 'S'}
+            {(item.metadata?.rank as number ?? 0) + 1}
+          </Text>
+          <Text style={[
+            isFocused ? styles.focusedText : styles.itemText,
+          ]}>
+            {displayText}
+          </Text>
+        </View>
+      );
+    },
+    [modifierState],
+  );
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         {[0, 1, 2].map((i) => (
-          <View key={i} style={[styles.item, styles.shimmer]} />
+          <View key={i} style={styles.shimmer} />
         ))}
       </View>
     );
   }
 
   return (
-    <FlatList
-      data={predictions}
+    <WheelPicker
+      items={wheelItems}
+      focusedIndex={composeIndex}
+      onFocusChange={handleFocusChange}
+      onGesture={handleGesture}
       renderItem={renderItem}
-      keyExtractor={(item) => item.id}
-      scrollEnabled={false}
-      contentContainerStyle={styles.list}
     />
   );
 }
 
 const styles = StyleSheet.create({
-  list: { gap: LAYOUT.itemGap },
-  itemWrapper: {},
-  item: {
-    minHeight: LAYOUT.listItemHeight,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    justifyContent: 'center',
-    paddingHorizontal: LAYOUT.screenPadding,
+  itemContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
   itemLabel: {
     fontSize: TYPOGRAPHY.itemLabel.size,
     color: '#6B6B6B',
-    marginRight: 4,
+    marginRight: 8,
+  },
+  focusedLabel: {
+    color: 'rgba(255, 255, 255, 0.7)',
   },
   itemText: {
-    fontSize: TYPOGRAPHY.listItem.size,
-    fontWeight: TYPOGRAPHY.listItem.weight,
+    fontSize: LAYOUT.wheelPickerItemFontSize,
+    fontWeight: '500',
     color: '#1A1A1A',
     flex: 1,
   },
-  loadingContainer: { gap: LAYOUT.itemGap },
+  focusedText: {
+    fontSize: LAYOUT.wheelPickerFocusedFontSize,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  loadingContainer: {
+    gap: LAYOUT.itemGap,
+    paddingHorizontal: LAYOUT.screenPadding,
+  },
   shimmer: {
-    minHeight: LAYOUT.listItemHeight,
+    height: LAYOUT.wheelPickerItemHeight,
     backgroundColor: '#D5D5D0',
-    borderRadius: 8,
+    borderRadius: 12,
   },
 });
