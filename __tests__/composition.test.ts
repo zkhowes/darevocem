@@ -246,11 +246,12 @@ describe('CompositionStore — preloadSavedPhrase', () => {
 });
 
 describe('CompositionStore — preloadCommonItem', () => {
-  it('sets the value as first slot with no intent', () => {
+  it('sets the value as first slot with no intent and isLoading true', () => {
     useCompositionStore.getState().preloadCommonItem('March 24');
-    const { intent, slots } = useCompositionStore.getState();
+    const { intent, slots, isLoading } = useCompositionStore.getState();
     expect(intent).toBeNull();
     expect(slots).toEqual(['March 24']);
+    expect(isLoading).toBe(true);
   });
 });
 
