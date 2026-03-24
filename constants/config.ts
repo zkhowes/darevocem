@@ -2,6 +2,7 @@ export const GESTURE = {
   swipeThresholdPx: 50,
   doubleTapMaxDelayMs: 300,
   longPressMs: 2000,
+  longPressCancelMovePx: 10,
   sensitivityLevels: { low: 1.5, medium: 1.0, high: 0.7 } as const,
 } as const;
 

@@ -132,6 +132,7 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
     onMoveShouldSetPanResponder: () => config.enabled,
 
     onPanResponderGrant: () => {
+      if (!config.enabled) return;
       isLongPressRef.current = false;
 
       // Start long press timer
@@ -144,7 +145,7 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
     onPanResponderMove: (_evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
       // If moved enough to be a swipe, cancel long press
       const { dx, dy } = gestureState;
-      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+      if (Math.abs(dx) > GESTURE.longPressCancelMovePx || Math.abs(dy) > GESTURE.longPressCancelMovePx) {
         if (longPressTimeoutRef.current) {
           clearTimeout(longPressTimeoutRef.current);
           longPressTimeoutRef.current = null;
@@ -153,6 +154,7 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
     },
 
     onPanResponderRelease: (_evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
+      if (!config.enabled) return;
       // Cancel long press timer
       if (longPressTimeoutRef.current) {
         clearTimeout(longPressTimeoutRef.current);
