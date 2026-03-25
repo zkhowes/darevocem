@@ -8,9 +8,10 @@ import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
 interface PhraseSectionProps {
   onNavigateUp: () => void;
   onSave: () => void;
+  onSpeak?: () => void;
 }
 
-export function PhraseSection({ onNavigateUp, onSave }: PhraseSectionProps) {
+export function PhraseSection({ onNavigateUp, onSave, onSpeak }: PhraseSectionProps) {
   const phrase = useCompositionStore((s) => s.getPhrase());
   const undoSlot = useCompositionStore((s) => s.undoSlot);
   const redoSlot = useCompositionStore((s) => s.redoSlot);
@@ -42,7 +43,9 @@ export function PhraseSection({ onNavigateUp, onSave }: PhraseSectionProps) {
         }
         break;
       case 'double-tap':
-        // MVP 1.1: speak phrase
+        if (phrase && onSpeak) {
+          onSpeak();
+        }
         break;
       case 'long-press':
         // Context menu: "speak imperfect", save

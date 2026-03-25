@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WheelPicker } from '../../components/shared/WheelPicker';
@@ -77,8 +77,12 @@ export default function HomeScreen() {
       metadata: { category: phrase.category },
     }));
 
-    // Interleave: predicted first, then common, then saved
-    return [...intentCards, ...commonCards, ...savedCards];
+    // Limit to 3 per type to keep home screen clean
+    return [
+      ...intentCards.slice(0, 3),
+      ...commonCards.slice(0, 3),
+      ...savedCards.slice(0, 3),
+    ];
   }, [commonItems, savedPhrases]);
 
   const handleGesture = useCallback(
@@ -149,6 +153,12 @@ export default function HomeScreen() {
     <ErrorBoundary>
       <SafeAreaView style={styles.container}>
         <Text style={styles.title}>DARE VOCEM</Text>
+        {/* Record card — coming in Phase 2 (voice input) */}
+        <View style={styles.recordCard}>
+          <Text style={styles.recordIcon}>🎙</Text>
+          <Text style={styles.recordText}>Record</Text>
+          <Text style={styles.recordSoon}>Coming soon</Text>
+        </View>
         <WheelPicker
           items={starterCards}
           focusedIndex={focusedIndex}
@@ -173,5 +183,33 @@ const styles = StyleSheet.create({
     letterSpacing: 6,
     textAlign: 'center',
     marginVertical: 24,
+  },
+  recordCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: LAYOUT.screenPadding,
+    marginBottom: 16,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#E07B2E',
+    opacity: 0.6,
+  },
+  recordIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  recordText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    flex: 1,
+  },
+  recordSoon: {
+    fontSize: 14,
+    color: '#6B6B6B',
+    fontStyle: 'italic',
   },
 });

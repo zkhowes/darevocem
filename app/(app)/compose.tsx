@@ -7,6 +7,7 @@ import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
 import { getTimeOfDay } from '../../services/context';
 import { getPredictions, getModifiers } from '../../services/predictions';
+import { speakPhrase } from '../../services/tts';
 import { FALLBACK_MODIFIERS } from '../../constants/fallbacks';
 import type { ComposeItem } from '../../types';
 
@@ -23,11 +24,17 @@ export default function ComposeScreen() {
   useEffect(() => {
     const { intent: currentIntent, predictions, slots } = useCompositionStore.getState();
     if (currentIntent || predictions.length > 0 || slots.length > 0) {
-      // Pre-loaded from home screen — don't reset
+      // Pre-loaded from home or saved screen — don't reset
       focusReset();
-      // For saved phrases, focus on PhraseSection for immediate speak/modify
-      if (params.type === 'saved') {
-        setSection('phrase');
+
+      // For saved phrases, fetch predictions so user can continue composing
+      if (params.type === 'saved' && slots.length > 0 && predictions.length === 0) {
+        setSection('compose', 0);
+        const store = useCompositionStore.getState();
+        store.setLoading(true);
+        getPredictions('', slots, 'object', getTimeOfDay(), [], [])
+          .then((items) => useCompositionStore.getState().setPredictions(items))
+          .finally(() => useCompositionStore.getState().setLoading(false));
       }
       return;
     }
@@ -139,6 +146,37 @@ export default function ComposeScreen() {
     }
   }, []);
 
+  // Double-tap selection: add to phrase then fetch next predictions
+  const handleSelect = useCallback(async (selectedText: string) => {
+    const state = useCompositionStore.getState();
+    state.setLoading(true);
+    try {
+      const nextPredictions = await getPredictions(
+        state.intent ?? '',
+        state.slots, // slots already updated by addSlot in ComposeSection
+        'object',
+        getTimeOfDay(),
+        [],
+        [],
+      );
+      useCompositionStore.getState().setPredictions(nextPredictions);
+    } finally {
+      useCompositionStore.getState().setLoading(false);
+    }
+  }, []);
+
+  // Double-tap on phrase bar: speak the composed phrase, then go home
+  const handlePhraseSpeak = useCallback(async () => {
+    const phrase = useCompositionStore.getState().getPhrase();
+    if (!phrase) return;
+    await speakPhrase(phrase, {
+      onDone: () => {
+        useCompositionStore.getState().reset();
+        router.back();
+      },
+    });
+  }, [router]);
+
   const handlePhraseSave = useCallback(() => {
     // Task 13: save to saved_phrases
   }, []);
@@ -164,10 +202,12 @@ export default function ComposeScreen() {
           onBacktrack={handleBacktrack}
           onDiverge={handleDiverge}
           onModifierTap={handleModifierTap}
+          onSelect={handleSelect}
         />
       }
       onPhraseSave={handlePhraseSave}
       onPhraseNavigateUp={handlePhraseNavigateUp}
+      onPhraseSpeak={handlePhraseSpeak}
     />
   );
 }

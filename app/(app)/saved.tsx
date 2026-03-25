@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SectionLayout } from '../../components/sections/SectionLayout';
 import { CategoryHeader } from '../../components/sections/CategoryHeader';
@@ -13,14 +13,23 @@ import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
 
 const CATEGORIES = ['Introductions', 'Daily', 'Social', 'Medical', 'Custom'];
 
+/**
+ * Parse saved phrase text for variable format.
+ * Convention: "Label = Value" → { label: "Label", value: "Value", isVariable: true }
+ * Otherwise: { label: null, value: text, isVariable: false }
+ */
+function parsePhrase(text: string): { label: string | null; value: string; isVariable: boolean } {
+  const eqIdx = text.indexOf(' = ');
+  if (eqIdx > 0) {
+    return { label: text.slice(0, eqIdx), value: text.slice(eqIdx + 3), isVariable: true };
+  }
+  return { label: null, value: text, isVariable: false };
+}
+
 export default function SavedScreen() {
   const router = useRouter();
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [phrases, setPhrases] = useState<SavedPhrase[]>([]);
-  const addSlot = useCompositionStore((s) => s.addSlot);
-  // setIntent only accepts string — we use '' to clear the intent before inserting
-  // a full saved phrase, so the phrase bar shows just the phrase text without an intent prefix
-  const setIntent = useCompositionStore((s) => s.setIntent);
   const composeIndex = useFocusStore((s) => s.composeIndex);
   const section = useFocusStore((s) => s.section);
   const moveDown = useFocusStore((s) => s.moveDown);
@@ -28,8 +37,11 @@ export default function SavedScreen() {
   const setSection = useFocusStore((s) => s.setSection);
   const focusReset = useFocusStore((s) => s.reset);
 
-  // Reset focus to the header section when the screen mounts
-  useEffect(() => { focusReset(); }, []);
+  // Reset focus and clear any stale composition state (intent from prior session)
+  useEffect(() => {
+    useCompositionStore.getState().reset();
+    focusReset();
+  }, []);
 
   useEffect(() => {
     async function fetchPhrases() {
@@ -47,7 +59,6 @@ export default function SavedScreen() {
   }, [category]);
 
   const handleItemAction = (action: GestureAction, phrase: SavedPhrase, index: number) => {
-    // Only handle gestures when the compose section is focused
     if (section !== 'compose') return;
     switch (action.type) {
       case 'swipe':
@@ -57,29 +68,43 @@ export default function SavedScreen() {
           default: break;
         }
         break;
-      case 'double-tap':
-        // Saved phrases are full sentences — clear any active intent so the
-        // phrase bar shows just the selected phrase without an intent prefix
-        setIntent('');
-        addSlot(phrase.text);
+      case 'double-tap': {
+        const parsed = parsePhrase(phrase.text);
+        // For variables (e.g., "DOB = 12/29/1981"), add only the value
+        const textToAdd = parsed.value;
+        // Preload as a slot and navigate to compose so user can continue with predictions
+        const store = useCompositionStore.getState();
+        store.preloadSavedPhrase(textToAdd);
+        router.push({ pathname: '/(app)/compose', params: { type: 'saved', value: textToAdd } } as never);
         break;
+      }
     }
   };
 
-  const renderItem = ({ item, index }: { item: SavedPhrase; index: number }) => (
-    <GestureArea
-      onAction={(action) => handleItemAction(action, item, index)}
-      style={{ marginBottom: LAYOUT.itemGap }}
-    >
-      <FocusIndicator
-        isFocused={section === 'compose' && composeIndex === index}
-        isTopPrediction={index === 0}
-        style={styles.item}
+  const renderItem = ({ item, index }: { item: SavedPhrase; index: number }) => {
+    const parsed = parsePhrase(item.text);
+    return (
+      <GestureArea
+        onAction={(action) => handleItemAction(action, item, index)}
+        style={{ marginBottom: LAYOUT.itemGap }}
       >
-        <Text style={styles.itemText} numberOfLines={3}>{item.text}</Text>
-      </FocusIndicator>
-    </GestureArea>
-  );
+        <FocusIndicator
+          isFocused={section === 'compose' && composeIndex === index}
+          isTopPrediction={index === 0}
+          style={styles.item}
+        >
+          {parsed.isVariable ? (
+            <View>
+              <Text style={styles.itemLabel}>{parsed.label}</Text>
+              <Text style={styles.itemText} numberOfLines={2}>{parsed.value}</Text>
+            </View>
+          ) : (
+            <Text style={styles.itemText} numberOfLines={3}>{item.text}</Text>
+          )}
+        </FocusIndicator>
+      </GestureArea>
+    );
+  };
 
   return (
     <SectionLayout
@@ -113,6 +138,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: LAYOUT.screenPadding,
     paddingVertical: 12,
+  },
+  itemLabel: {
+    fontSize: TYPOGRAPHY.itemLabel.size,
+    color: '#6B6B6B',
+    marginBottom: 2,
   },
   itemText: {
     fontSize: TYPOGRAPHY.listItem.size,

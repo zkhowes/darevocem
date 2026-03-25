@@ -25,8 +25,11 @@ export default function CommonScreen() {
   const setSection = useFocusStore((s) => s.setSection);
   const focusReset = useFocusStore((s) => s.reset);
 
-  // Reset focus to the header section when the screen mounts
-  useEffect(() => { focusReset(); }, []);
+  // Reset focus and clear any stale composition state (intent from prior session)
+  useEffect(() => {
+    useCompositionStore.getState().reset();
+    focusReset();
+  }, []);
 
   useEffect(() => {
     async function fetchItems() {

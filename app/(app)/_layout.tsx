@@ -4,9 +4,9 @@ export default function AppLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="compose" />
-      <Stack.Screen name="common" />
-      <Stack.Screen name="saved" />
+      <Stack.Screen name="compose" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="common" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="saved" options={{ gestureEnabled: false }} />
       <Stack.Screen name="settings" />
     </Stack>
   );

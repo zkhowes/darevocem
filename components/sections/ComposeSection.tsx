@@ -11,9 +11,10 @@ interface ComposeSectionProps {
   onBacktrack: () => void;
   onDiverge: () => void;
   onModifierTap: (item: ComposeItem) => void;
+  onSelect: (selectedText: string) => void;
 }
 
-export function ComposeSection({ onAdvance, onBacktrack, onDiverge, onModifierTap }: ComposeSectionProps) {
+export function ComposeSection({ onAdvance, onBacktrack, onDiverge, onModifierTap, onSelect }: ComposeSectionProps) {
   const predictions = useCompositionStore((s) => s.predictions);
   const isLoading = useCompositionStore((s) => s.isLoading);
   const addSlot = useCompositionStore((s) => s.addSlot);
@@ -87,10 +88,20 @@ export function ComposeSection({ onAdvance, onBacktrack, onDiverge, onModifierTa
               break;
           }
           break;
-        case 'double-tap':
-          addSlot(prediction.value ?? prediction.text);
+        case 'double-tap': {
+          // If a modifier is active for this item, add the full modified text
+          // e.g., "coffee and" instead of just "coffee"
+          const state = useCompositionStore.getState();
+          const modifiedText = state.modifierState?.targetItem === prediction.text
+            ? state.getModifierDisplayText() ?? (prediction.value ?? prediction.text)
+            : (prediction.value ?? prediction.text);
+          addSlot(modifiedText);
+          state.clearModifier();
           logEvent('select');
+          // Fetch next predictions based on updated phrase
+          onSelect(modifiedText);
           break;
+        }
         case 'tap':
           onModifierTap(prediction);
           break;
@@ -99,7 +110,7 @@ export function ComposeSection({ onAdvance, onBacktrack, onDiverge, onModifierTa
           break;
       }
     },
-    [section, predictions, predictionHistory.length, onAdvance, onBacktrack, onDiverge, onModifierTap, addSlot, addEvent, moveDown],
+    [section, predictions, predictionHistory.length, onAdvance, onBacktrack, onDiverge, onModifierTap, onSelect, addSlot, addEvent, moveDown],
   );
 
   const renderItem = useCallback(

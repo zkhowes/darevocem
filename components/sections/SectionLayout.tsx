@@ -12,6 +12,7 @@ interface SectionLayoutProps {
   itemsContent: React.ReactNode;
   onPhraseSave: () => void;
   onPhraseNavigateUp: () => void;
+  onPhraseSpeak?: () => void;
 }
 
 export function SectionLayout({
@@ -19,6 +20,7 @@ export function SectionLayout({
   itemsContent,
   onPhraseSave,
   onPhraseNavigateUp,
+  onPhraseSpeak,
 }: SectionLayoutProps) {
   const router = useRouter();
 
@@ -28,10 +30,7 @@ export function SectionLayout({
         {/* Section 1: Nav */}
         <View style={styles.nav}>
           <Pressable onPress={() => router.push('/(app)/settings' as never)}>
-            <Text style={styles.navIcon}>|||</Text>
-          </Pressable>
-          <Pressable onPress={() => {/* Profile/account */}}>
-            <Text style={styles.navIcon}>@</Text>
+            <Text style={styles.navIcon}>☰</Text>
           </Pressable>
         </View>
 
@@ -52,6 +51,7 @@ export function SectionLayout({
         <PhraseSection
           onNavigateUp={onPhraseNavigateUp}
           onSave={onPhraseSave}
+          onSpeak={onPhraseSpeak}
         />
       </SafeAreaView>
     </ErrorBoundary>

@@ -168,11 +168,18 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
       const swipeAction = classifyGesture(dx, dy, 0, config);
 
       if (swipeAction) {
+        if (__DEV__) {
+          const dir = swipeAction.type === 'swipe' ? swipeAction.direction : '';
+          console.log(`[Gesture] ${swipeAction.type}:${dir} (dx=${dx.toFixed(0)}, dy=${dy.toFixed(0)})`);
+        }
         onAction(swipeAction);
         return;
       }
 
       // Not a swipe — handle as tap/double-tap
+      if (__DEV__) {
+        console.log(`[Gesture] tap candidate (dx=${dx.toFixed(0)}, dy=${dy.toFixed(0)})`);
+      }
       const now = Date.now();
       const timeSinceLastTap = now - lastTapRef.current;
 
