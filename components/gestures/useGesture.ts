@@ -15,6 +15,14 @@ interface UseGestureOptions {
  * Returns null if displacement is below the swipe threshold (i.e. it's a tap).
  * Diagonal movements resolve to the dominant axis.
  */
+/**
+ * Minimum ratio between dominant and secondary axis to classify as a
+ * directional swipe. Gestures where both axes are within this ratio of
+ * each other are treated as ambiguous diagonals and ignored.
+ * 1.5 means the dominant axis must be at least 1.5x the secondary axis.
+ */
+const SWIPE_AXIS_RATIO = 1.5;
+
 export function classifyGesture(
   dx: number,
   dy: number,
@@ -26,6 +34,16 @@ export function classifyGesture(
   const absDy = Math.abs(dy);
 
   if (absDx > swipeThresholdPx || absDy > swipeThresholdPx) {
+    // Reject ambiguous diagonals — dominant axis must clearly win
+    const dominant = Math.max(absDx, absDy);
+    const secondary = Math.min(absDx, absDy);
+    if (secondary > 0 && dominant / secondary < SWIPE_AXIS_RATIO) {
+      if (__DEV__) {
+        console.log(`[Gesture] diagonal rejected (dx=${dx.toFixed(0)}, dy=${dy.toFixed(0)}, ratio=${(dominant / secondary).toFixed(2)})`);
+      }
+      return null; // Ambiguous diagonal — treat as no-op
+    }
+
     if (absDx > absDy) {
       return { type: 'swipe', direction: dx > 0 ? 'right' : 'left' };
     } else {

@@ -13,6 +13,12 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
     id: row.id as string,
     role: row.role as UserProfile['role'],
     displayName: (row.display_name as string) ?? null,
+    firstName: (row.first_name as string) ?? null,
+    lastName: (row.last_name as string) ?? null,
+    dateOfBirth: (row.date_of_birth as string) ?? null,
+    phone: (row.phone as string) ?? null,
+    homeAddress: (row.home_address as string) ?? null,
+    onboardingComplete: (row.onboarding_complete as boolean) ?? false,
   };
 }
 
@@ -113,7 +119,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Exchange code for session
     const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
     if (sessionError) {
-      Alert.alert('Code exchange error', sessionError.message);
       throw sessionError;
     }
   },

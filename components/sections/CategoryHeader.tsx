@@ -13,7 +13,7 @@ interface CategoryHeaderProps {
 
 /**
  * Swipeable category header for Common and Saved screens.
- * Left/right cycles categories; up/down navigates the section hierarchy.
+ * Left swipes forward through categories, right swipes back; up/down navigates the section hierarchy.
  */
 export function CategoryHeader({
   categories,
@@ -28,14 +28,14 @@ export function CategoryHeader({
       switch (action.direction) {
         case 'left':
           setIndex((prev) => {
-            const next = (prev - 1 + categories.length) % categories.length;
+            const next = (prev + 1) % categories.length;
             onCategoryChange(categories[next]);
             return next;
           });
           break;
         case 'right':
           setIndex((prev) => {
-            const next = (prev + 1) % categories.length;
+            const next = (prev - 1 + categories.length) % categories.length;
             onCategoryChange(categories[next]);
             return next;
           });

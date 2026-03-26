@@ -17,6 +17,18 @@ interface IntentSectionProps {
 }
 
 export function IntentSection({ onNavigateHome, timeOfDay, collapsed, onExpand, initialIntent }: IntentSectionProps) {
+  // Subscribe to the composition store's intent for reactive updates (phrase mode changes, etc.)
+  const storeIntent = useCompositionStore((s) => s.intent);
+
+  // Use store intent if available, otherwise fall back to initial prop
+  const activeIntent = storeIntent ?? initialIntent ?? null;
+
+  // Track whether intent is a curated one (cycleable) or custom text (display-only)
+  const isCustomIntent = activeIntent
+    ? INTENTS.findIndex((i) => i.text === activeIntent) < 0
+    : false;
+  const customIntentText = isCustomIntent ? activeIntent : null;
+
   const [intentIndex, setIntentIndex] = useState(() => {
     if (initialIntent) {
       const idx = INTENTS.findIndex((i) => i.text === initialIntent);
@@ -58,8 +70,8 @@ export function IntentSection({ onNavigateHome, timeOfDay, collapsed, onExpand, 
     switch (action.type) {
       case 'swipe':
         switch (action.direction) {
-          case 'left': cycleIntent('left'); break;
-          case 'right': cycleIntent('right'); break;
+          case 'left': cycleIntent('right'); break;
+          case 'right': cycleIntent('left'); break;
           case 'up': onNavigateHome(); break;
           case 'down':
             setIntent(currentIntent.text);
@@ -71,7 +83,21 @@ export function IntentSection({ onNavigateHome, timeOfDay, collapsed, onExpand, 
         confirmIntent();
         break;
       case 'tap':
-        // Add modifier to intent (future enhancement)
+        // Cycle intent modifier ("I need" → "I need to" → "I need a" → "I need some")
+        {
+          const store = useCompositionStore.getState();
+          const intentModifiers = ['to', 'a', 'some', 'my', 'the'];
+          if (store.modifierState?.targetItem === currentIntent.text) {
+            store.cycleModifier();
+          } else {
+            store.setModifiers(currentIntent.text, intentModifiers);
+          }
+          // Update the intent in the store with the modifier
+          const modText = useCompositionStore.getState().getModifierDisplayText();
+          if (modText) {
+            setIntent(modText);
+          }
+        }
         break;
       case 'long-press':
         // Context menu (Task 15)
@@ -79,22 +105,27 @@ export function IntentSection({ onNavigateHome, timeOfDay, collapsed, onExpand, 
     }
   };
 
+  // Display text: custom intent from keyboard/common, or curated intent from cycling
+  const displayText = customIntentText ?? currentIntent.text;
+
   // Collapsed: render a compact bar showing the current intent
   if (collapsed) {
     return (
       <GestureArea onAction={handleAction} style={styles.collapsedContainer}>
         <Text style={styles.collapsedLabel}>Intent: </Text>
-        <Text style={styles.collapsedText}>{currentIntent.text}</Text>
+        <Text style={styles.collapsedText}>{displayText}</Text>
       </GestureArea>
     );
   }
 
   return (
     <GestureArea onAction={handleAction} style={styles.container}>
-      <Text style={styles.label}>
-        I{intentIndex + 1}: {' '}
-      </Text>
-      <Text style={styles.intentText}>{currentIntent.text}</Text>
+      {!customIntentText && (
+        <Text style={styles.label}>
+          I{intentIndex + 1}: {' '}
+        </Text>
+      )}
+      <Text style={styles.intentText}>{displayText}</Text>
     </GestureArea>
   );
 }

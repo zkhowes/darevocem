@@ -3,23 +3,58 @@ import { FALLBACK_PREDICTIONS, FALLBACK_MODIFIERS } from '../constants/fallbacks
 import { generateId } from '../types';
 import type { ComposeItem, TimeOfDay } from '../types';
 
-// PredictionResponse is defined in types/index.ts but uses Prediction[]
-// (which has type: SlotType). The edge function returns { text, type: string }
-// so we define a local looser type for the raw API response.
+declare const __DEV__: boolean;
+
 interface RawPrediction {
   text: string;
-  type: string;
 }
 
 interface EdgePredictionResponse {
   predictions: RawPrediction[];
   fallback: boolean;
+  debug?: {
+    promptSent: string;
+    rawResponse: string;
+    latencyMs: number;
+    source: string;
+  };
 }
 
-// Returns fallback ComposeItems for the given intent, using curated constants.
-// Falls back to 'I need' defaults if the intent isn't in the map.
-function fallbacksForIntent(intent: string): ComposeItem[] {
-  const texts = FALLBACK_PREDICTIONS[intent] ?? FALLBACK_PREDICTIONS['I need'];
+// Continuation fallbacks when the phrase already has words beyond the intent.
+const FALLBACK_CONTINUATIONS: string[] = [
+  'please', 'now', 'today', 'right now', 'soon',
+  'and', 'with', 'for', 'but', 'or',
+];
+
+/**
+ * Returns curated fallback predictions for a given phrase.
+ * Extracts the intent (first 1-2 words) to look up relevant defaults,
+ * then filters out any items the user has already rejected.
+ */
+function getFallbacks(fullPhrase: string, triedItems: string[] = []): ComposeItem[] {
+  const tried = new Set(triedItems.map((t) => t.toLowerCase()));
+  const words = fullPhrase.trim().split(/\s+/);
+
+  // If the phrase is just an intent (1-2 words), use initial predictions
+  if (words.length <= 2) {
+    // Try to match the intent to our fallback map
+    const intentKey = Object.keys(FALLBACK_PREDICTIONS).find(
+      (key) => fullPhrase.toLowerCase().startsWith(key.toLowerCase()),
+    );
+    const allTexts = FALLBACK_PREDICTIONS[intentKey ?? 'I need'];
+    const filtered = allTexts.filter((t) => !tried.has(t.toLowerCase()));
+    const texts = filtered.length > 0 ? filtered : allTexts;
+    return texts.map((text, i) => ({
+      id: generateId(),
+      text,
+      itemType: 'prediction' as const,
+      rank: i,
+    }));
+  }
+
+  // Phrase has words beyond intent — use continuation fallbacks
+  const filtered = FALLBACK_CONTINUATIONS.filter((t) => !tried.has(t.toLowerCase()));
+  const texts = filtered.length > 0 ? filtered : FALLBACK_CONTINUATIONS;
   return texts.map((text, i) => ({
     id: generateId(),
     text,
@@ -29,37 +64,41 @@ function fallbacksForIntent(intent: string): ComposeItem[] {
 }
 
 /**
- * Fetches AI-powered predictions for the next slot in the composed phrase.
- * Routes through the Supabase Edge Function (predict), which holds the
- * Anthropic API key server-side. Falls back to curated constants on any error.
+ * Fetches AI predictions for what comes next in the phrase.
+ * Sends the FULL phrase (intent + all selected words) so Claude sees
+ * the complete sentence being built.
+ *
+ * Falls back to curated constants on any error.
  */
 export async function getPredictions(
-  intent: string,
-  currentPhrase: string[],
-  currentSlot: string,
+  fullPhrase: string,
   timeOfDay: TimeOfDay,
-  recentSelections: string[],
-  recentRejections: string[],
-  triedPaths?: string[][],
+  triedItems?: string[],
 ): Promise<ComposeItem[]> {
   try {
+    const startMs = Date.now();
     const { data, error } = await supabase.functions.invoke('predict', {
       body: {
-        intent,
-        currentPhrase,
-        currentSlot,
-        sessionContext: { timeOfDay, recentSelections, recentRejections },
-        triedPaths: triedPaths ?? [],
+        fullPhrase,
+        requestType: 'next',
+        timeOfDay,
+        triedItems: triedItems ?? [],
       },
     });
 
+    if (__DEV__) {
+      const elapsed = Date.now() - startMs;
+      console.log(`[Predict] next "${fullPhrase}" → ${data?.predictions?.length ?? 0} results (${elapsed}ms, fallback=${data?.fallback ?? 'error'})`);
+      if (data?.debug) console.log('[Predict] debug:', JSON.stringify(data.debug, null, 2));
+    }
+
     if (error || !data || data.fallback) {
-      return fallbacksForIntent(intent);
+      return getFallbacks(fullPhrase, triedItems);
     }
 
     const response = data as EdgePredictionResponse;
     if (response.predictions.length === 0) {
-      return fallbacksForIntent(intent);
+      return getFallbacks(fullPhrase, triedItems);
     }
 
     return response.predictions.map((p, i) => ({
@@ -68,27 +107,67 @@ export async function getPredictions(
       itemType: 'prediction' as const,
       rank: i,
     }));
-  } catch {
-    // Network timeout, parse error, or any unexpected failure — serve curated defaults
-    return fallbacksForIntent(intent);
+  } catch (err) {
+    if (__DEV__) console.log('[Predict] error:', err);
+    return getFallbacks(fullPhrase, triedItems);
   }
 }
 
 /**
- * Returns connector/modifier words for a selected item ("and", "or", "with"...).
- * Returns plain string[] — these are connector words, not selectable ComposeItems.
- * Routes through the Edge Function; falls back to FALLBACK_MODIFIERS on any error.
+ * Fetches AI-generated common phrases for the current time of day.
+ */
+export async function getCommonPhrases(
+  timeOfDay: TimeOfDay,
+): Promise<ComposeItem[]> {
+  try {
+    const { data, error } = await supabase.functions.invoke('predict', {
+      body: {
+        requestType: 'common_phrases',
+        timeOfDay,
+      },
+    });
+
+    if (error || !data || data.fallback || !data.phrases || data.phrases.length === 0) {
+      return fallbackCommonPhrases(timeOfDay);
+    }
+
+    return data.phrases.map((p: { text: string }, i: number) => ({
+      id: generateId(),
+      text: p.text,
+      itemType: 'common' as const,
+      rank: i,
+    }));
+  } catch {
+    return fallbackCommonPhrases(timeOfDay);
+  }
+}
+
+function fallbackCommonPhrases(timeOfDay: TimeOfDay): ComposeItem[] {
+  const phrases: Record<TimeOfDay, string[]> = {
+    morning: ['I need coffee and cream', 'What time is my appointment today', 'Good morning', 'I want breakfast', 'I need my medication'],
+    afternoon: ['I want to get outside today', 'What are we doing this afternoon', 'I need to rest', 'Can we go for a walk', 'What time is it'],
+    evening: ['What is for dinner tonight', 'I want to watch something', 'I feel tired', 'Can we talk for a bit', 'I love you'],
+    night: ['I need to go to bed', 'I need my medication', 'Good night', 'I need water', 'I feel tired'],
+  };
+  return (phrases[timeOfDay] ?? phrases.morning).map((text, i) => ({
+    id: generateId(),
+    text,
+    itemType: 'common' as const,
+    rank: i,
+  }));
+}
+
+/**
+ * Fetches modifier/connector words for a selected item.
  */
 export async function getModifiers(
-  intent: string,
-  currentPhrase: string[],
+  fullPhrase: string,
   targetItem: string,
 ): Promise<string[]> {
   try {
     const { data, error } = await supabase.functions.invoke('predict', {
       body: {
-        intent,
-        currentPhrase,
+        fullPhrase,
         targetItem,
         requestType: 'modifiers',
       },

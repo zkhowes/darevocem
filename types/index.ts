@@ -62,6 +62,9 @@ export interface WheelPickerItem {
 export interface PredictionHistoryEntry {
   predictions: ComposeItem[];
   slot: string;
+  // 'advance' = double-tap added a slot; 'refine' = right-swipe explored alternatives (no slot added).
+  // backtrack() only removes a slot when popping an 'advance' entry.
+  source: 'advance' | 'refine';
 }
 
 export interface ModifierState {
@@ -187,6 +190,12 @@ export interface UserProfile {
   id: string;
   role: UserRole;
   displayName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  dateOfBirth: string | null;
+  phone: string | null;
+  homeAddress: string | null;
+  onboardingComplete: boolean;
 }
 
 // === API Responses ===

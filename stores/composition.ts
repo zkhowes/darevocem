@@ -4,6 +4,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { generateId } from '../types';
 import type { ComposeItem, SessionStep, PredictionHistoryEntry, ModifierState } from '../types';
 
+// Compose screen has two modes:
+// - 'predict': AI predicts next words to append (entered from predicted intents or record)
+// - 'phrase': shows full common/saved phrases to select (entered from common/saved)
+export type ComposeMode = 'predict' | 'phrase';
+// What type of phrases to show in phrase mode
+export type PhraseSource = 'common' | 'saved';
+
 interface CompositionStore {
   sessionId: string;
   intent: string | null;
@@ -15,8 +22,12 @@ interface CompositionStore {
   startedAt: number;
   events: SessionStep[];
 
+  // Compose mode state
+  composeMode: ComposeMode;
+  phraseSource: PhraseSource | null;
+
   predictionHistory: PredictionHistoryEntry[];
-  triedPaths: string[][];
+  triedItems: string[];
   modifierState: ModifierState | null;
 
   setIntent: (intent: string) => void;
@@ -33,9 +44,13 @@ interface CompositionStore {
   preload: (intent: string, predictions: ComposeItem[]) => void;
   preloadSavedPhrase: (text: string) => void;
   preloadCommonItem: (value: string) => void;
+  preloadPhraseMode: (text: string, source: PhraseSource) => void;
+  switchToPredictMode: () => void;
   advance: (selectedText: string, nextPredictions: ComposeItem[]) => void;
+  refine: (targetItem: string, newPredictions: ComposeItem[]) => void;
   backtrack: () => boolean;
-  recordTriedPath: (path: string[]) => void;
+  recordTriedItem: (item: string) => void;
+  clearTriedItems: () => void;
   setModifiers: (targetItem: string, modifiers: string[]) => void;
   cycleModifier: () => void;
   clearModifier: () => void;
@@ -54,8 +69,10 @@ export const useCompositionStore = create<CompositionStore>()(
       isLoading: false,
       startedAt: Date.now(),
       events: [],
+      composeMode: 'predict' as ComposeMode,
+      phraseSource: null,
       predictionHistory: [],
-      triedPaths: [],
+      triedItems: [],
       modifierState: null,
 
       setIntent: (intent) => set({ intent, intentCycleCount: 0 }),
@@ -112,8 +129,10 @@ export const useCompositionStore = create<CompositionStore>()(
         slots: [],
         undoStack: [],
         predictionHistory: [],
-        triedPaths: [],
+        triedItems: [],
         modifierState: null,
+        composeMode: 'predict' as ComposeMode,
+        phraseSource: null,
       }),
 
       // Preload a saved phrase as a single complete slot (no intent, ready to speak).
@@ -124,8 +143,10 @@ export const useCompositionStore = create<CompositionStore>()(
         isLoading: false,
         undoStack: [],
         predictionHistory: [],
-        triedPaths: [],
+        triedItems: [],
         modifierState: null,
+        composeMode: 'phrase' as ComposeMode,
+        phraseSource: 'saved' as PhraseSource,
       }),
 
       // Preload a common item as the first slot (no intent, loading for next predictions).
@@ -135,40 +156,104 @@ export const useCompositionStore = create<CompositionStore>()(
         isLoading: true,
         undoStack: [],
         predictionHistory: [],
-        triedPaths: [],
+        triedItems: [],
         modifierState: null,
+        composeMode: 'predict' as ComposeMode,
+        phraseSource: null,
       }),
 
-      // Right swipe: confirm the focused prediction, push it onto slots, save history for backtrack.
+      // Preload for phrase mode — shows the selected phrase in intent/phrase bar,
+      // compose section shows more common/saved phrases to quickly swap to.
+      preloadPhraseMode: (text, source) => set({
+        intent: text,
+        slots: [],
+        predictions: [],
+        isLoading: true,
+        undoStack: [],
+        predictionHistory: [],
+        triedItems: [],
+        modifierState: null,
+        composeMode: 'phrase' as ComposeMode,
+        phraseSource: source,
+      }),
+
+      // Switch from phrase mode to predict mode. Keeps current phrase,
+      // starts appending AI predictions to it.
+      switchToPredictMode: () => {
+        const { intent, slots } = get();
+        // Move the intent text into slots so predictions append after it
+        const currentPhrase = intent ? [intent, ...slots] : [...slots];
+        set({
+          intent: currentPhrase[0] ?? null,
+          slots: currentPhrase.slice(1),
+          composeMode: 'predict' as ComposeMode,
+          phraseSource: null,
+          predictions: [],
+          isLoading: true,
+          predictionHistory: [],
+          triedItems: [],
+          modifierState: null,
+        });
+      },
+
+      // Double-tap: select a word, add to phrase, replace predictions. Pushes history for backtrack.
       advance: (selectedText, nextPredictions) => set((s) => ({
         slots: [...s.slots, selectedText],
         predictionHistory: [...s.predictionHistory, {
           predictions: s.predictions,
           slot: selectedText,
+          source: 'advance',
         }],
         predictions: nextPredictions,
         undoStack: [],
         modifierState: null,
       })),
 
-      // Left swipe: undo last advance, restore the predictions that were shown at that point.
+      // Right swipe: push history for backtracking, replace predictions with similar alternatives.
+      // Does NOT add to phrase — the user is saying "close but not right."
+      // Skips the push if newPredictions are identical (e.g. fallback returned same list).
+      refine: (targetItem, newPredictions) => {
+        // Never replace predictions with nothing — user loses all options
+        if (newPredictions.length === 0) return;
+        const current = get().predictions;
+        const same = current.length === newPredictions.length &&
+          current.every((p, i) => p.text === newPredictions[i]?.text);
+        if (same) return; // No-op: nothing actually changed, don't pollute history
+        set((s) => ({
+          predictionHistory: [...s.predictionHistory, {
+            predictions: s.predictions,
+            slot: targetItem,
+            source: 'refine',
+          }],
+          predictions: newPredictions,
+          modifierState: null,
+        }));
+      },
+
+      // Left swipe: undo last history entry, restore the predictions that were shown.
+      // Only removes a slot if the entry was from an advance (which added a slot).
+      // Refine entries only swap predictions — no slot to remove.
       backtrack: () => {
         const { predictionHistory, slots } = get();
         if (predictionHistory.length === 0) return false;
         const previous = predictionHistory[predictionHistory.length - 1];
         set({
           predictions: previous.predictions,
-          slots: slots.slice(0, -1),
+          // Only remove a slot if the history entry added one
+          slots: previous.source === 'advance' ? slots.slice(0, -1) : slots,
           predictionHistory: predictionHistory.slice(0, -1),
           modifierState: null,
         });
         return true;
       },
 
-      // Record a path that Amanda tried and rejected, so predictions can deprioritize it.
-      recordTriedPath: (path) => set((s) => ({
-        triedPaths: [...s.triedPaths, path],
+      // Record a single item the user rejected (swipe-left), so predictions avoid it.
+      recordTriedItem: (item) => set((s) => ({
+        triedItems: s.triedItems.includes(item) ? s.triedItems : [...s.triedItems, item],
       })),
+
+      // Clear tried items — called when a new word is selected (fresh prediction space).
+      clearTriedItems: () => set({ triedItems: [] }),
 
       // Begin modifier cycling for the focused item (single tap on a slot).
       setModifiers: (targetItem, modifiers) => set({
@@ -206,8 +291,10 @@ export const useCompositionStore = create<CompositionStore>()(
         isLoading: false,
         startedAt: Date.now(),
         events: [],
+        composeMode: 'predict' as ComposeMode,
+        phraseSource: null,
         predictionHistory: [],
-        triedPaths: [],
+        triedItems: [],
         modifierState: null,
       }),
     }),

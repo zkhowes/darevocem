@@ -149,6 +149,10 @@ export function WheelPicker({
       onScrollToIndexFailed={() => {
         flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       }}
+      // Disable native scroll — focus changes are driven by swipe gestures on each item.
+      // FlatList's scroll responder otherwise intercepts vertical touches before
+      // PanResponder can classify them as swipes.
+      scrollEnabled={false}
     />
   );
 }

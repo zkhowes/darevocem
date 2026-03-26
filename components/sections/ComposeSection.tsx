@@ -9,18 +9,17 @@ import type { GestureAction, ComposeItem, WheelPickerItem } from '../../types';
 interface ComposeSectionProps {
   onAdvance: (item: ComposeItem) => void;
   onBacktrack: () => void;
-  onDiverge: () => void;
   onModifierTap: (item: ComposeItem) => void;
-  onSelect: (selectedText: string) => void;
+  onSelect: (item: ComposeItem) => void;
+  onLongPress?: () => void;
 }
 
-export function ComposeSection({ onAdvance, onBacktrack, onDiverge, onModifierTap, onSelect }: ComposeSectionProps) {
+export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect, onLongPress }: ComposeSectionProps) {
   const predictions = useCompositionStore((s) => s.predictions);
   const isLoading = useCompositionStore((s) => s.isLoading);
   const addSlot = useCompositionStore((s) => s.addSlot);
   const addEvent = useCompositionStore((s) => s.addEvent);
   const modifierState = useCompositionStore((s) => s.modifierState);
-  const predictionHistory = useCompositionStore((s) => s.predictionHistory);
 
   const composeIndex = useFocusStore((s) => s.composeIndex);
   const setComposeIndex = useFocusStore((s) => s.setComposeIndex);
@@ -68,18 +67,17 @@ export function ComposeSection({ onAdvance, onBacktrack, onDiverge, onModifierTa
       switch (gesture.type) {
         case 'swipe':
           switch (gesture.direction) {
-            case 'right':
-              onAdvance(prediction);
-              logEvent('advance');
-              break;
             case 'left':
-              if (predictionHistory.length > 0) {
-                onBacktrack();
-                logEvent('backtrack');
-              } else {
-                onDiverge();
-                logEvent('diverge');
-              }
+              // Refine: push history for backtracking, fetch similar alternatives.
+              // Does NOT add to phrase — the user is saying "close but not right."
+              onAdvance(prediction);
+              logEvent('refine');
+              break;
+            case 'right':
+              // Backtrack: pop prediction history or fetch divergent predictions.
+              // When history is empty, fetches divergent predictions (new path).
+              onBacktrack();
+              logEvent('reject');
               break;
             case 'down':
               if (index === predictions.length - 1) {
@@ -89,28 +87,22 @@ export function ComposeSection({ onAdvance, onBacktrack, onDiverge, onModifierTa
           }
           break;
         case 'double-tap': {
-          // If a modifier is active for this item, add the full modified text
-          // e.g., "coffee and" instead of just "coffee"
-          const state = useCompositionStore.getState();
-          const modifiedText = state.modifierState?.targetItem === prediction.text
-            ? state.getModifierDisplayText() ?? (prediction.value ?? prediction.text)
-            : (prediction.value ?? prediction.text);
-          addSlot(modifiedText);
-          state.clearModifier();
+          // Select item, add to phrase, fetch next predictions.
+          // Unlike left-swipe (advance), this does NOT push prediction history,
+          // so right-swipe won't backtrack through double-tap selections.
+          onSelect(prediction);
           logEvent('select');
-          // Fetch next predictions based on updated phrase
-          onSelect(modifiedText);
           break;
         }
         case 'tap':
           onModifierTap(prediction);
           break;
         case 'long-press':
-          // Context menu (future)
+          onLongPress?.();
           break;
       }
     },
-    [section, predictions, predictionHistory.length, onAdvance, onBacktrack, onDiverge, onModifierTap, onSelect, addSlot, addEvent, moveDown],
+    [section, predictions, onAdvance, onBacktrack, onModifierTap, onSelect, addSlot, addEvent, moveDown],
   );
 
   const renderItem = useCallback(

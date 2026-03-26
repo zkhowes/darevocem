@@ -21,8 +21,6 @@ jest.mock('@react-native-async-storage/async-storage', () => {
 jest.mock('react-native-url-polyfill/auto', () => {});
 
 // Mock the Supabase client — we control invoke() per test.
-// The factory must be self-contained (jest.mock is hoisted before variable init),
-// so we expose the mock function through the module object.
 jest.mock('../services/supabase', () => ({
   supabase: {
     functions: {
@@ -38,9 +36,12 @@ import { supabase } from '../services/supabase';
 // Typed reference to the mock so we can configure return values per test
 const mockInvoke = supabase.functions.invoke as jest.Mock;
 
-// Helper that makes fallback items for a given intent
-function expectedFallbacks(intent: string) {
-  const texts = FALLBACK_PREDICTIONS[intent] ?? FALLBACK_PREDICTIONS['I need'];
+// Helper that makes fallback items for a given intent phrase
+function expectedFallbacks(intentPhrase: string) {
+  const intentKey = Object.keys(FALLBACK_PREDICTIONS).find(
+    (key) => intentPhrase.toLowerCase().startsWith(key.toLowerCase()),
+  );
+  const texts = FALLBACK_PREDICTIONS[intentKey ?? 'I need'];
   return texts.map((text, i) => expect.objectContaining({ text, rank: i, itemType: 'prediction' }));
 }
 
@@ -55,19 +56,18 @@ describe('getPredictions — success path', () => {
     mockInvoke.mockResolvedValueOnce({
       data: {
         predictions: [
-          { text: 'water', type: 'object' },
-          { text: 'help', type: 'object' },
+          { text: 'water' },
+          { text: 'help' },
         ],
         fallback: false,
       },
       error: null,
     });
 
-    const result = await getPredictions('I need', [], 'object', 'morning', [], []);
+    const result = await getPredictions('I need', 'morning');
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({ text: 'water', itemType: 'prediction', rank: 0 });
     expect(result[1]).toMatchObject({ text: 'help', itemType: 'prediction', rank: 1 });
-    // Each item must have a generated id
     expect(typeof result[0].id).toBe('string');
     expect(result[0].id).not.toBe('');
   });
@@ -75,13 +75,13 @@ describe('getPredictions — success path', () => {
   it('maps response to ComposeItem array with correct shape', async () => {
     mockInvoke.mockResolvedValueOnce({
       data: {
-        predictions: [{ text: 'coffee', type: 'object' }],
+        predictions: [{ text: 'coffee' }],
         fallback: false,
       },
       error: null,
     });
 
-    const result = await getPredictions('I want', [], 'object', 'morning', [], []);
+    const result = await getPredictions('I want', 'morning');
     expect(result[0]).toHaveProperty('id');
     expect(result[0]).toHaveProperty('text', 'coffee');
     expect(result[0]).toHaveProperty('itemType', 'prediction');
@@ -93,14 +93,14 @@ describe('getPredictions — fallback on error', () => {
   it('returns curated fallbacks when invoke returns an error', async () => {
     mockInvoke.mockResolvedValueOnce({ data: null, error: new Error('network error') });
 
-    const result = await getPredictions('I need', [], 'object', 'morning', [], []);
+    const result = await getPredictions('I need', 'morning');
     expect(result).toEqual(expectedFallbacks('I need'));
   });
 
   it('returns curated fallbacks when invoke throws (timeout/crash)', async () => {
     mockInvoke.mockRejectedValueOnce(new Error('timeout'));
 
-    const result = await getPredictions('I need', [], 'object', 'morning', [], []);
+    const result = await getPredictions('I need', 'morning');
     expect(result).toEqual(expectedFallbacks('I need'));
   });
 
@@ -110,7 +110,7 @@ describe('getPredictions — fallback on error', () => {
       error: null,
     });
 
-    const result = await getPredictions('I feel', [], 'object', 'evening', [], []);
+    const result = await getPredictions('I feel', 'evening');
     expect(result).toEqual(expectedFallbacks('I feel'));
   });
 
@@ -120,7 +120,7 @@ describe('getPredictions — fallback on error', () => {
       error: null,
     });
 
-    const result = await getPredictions('I need', [], 'object', 'morning', [], []);
+    const result = await getPredictions('I need', 'morning');
     expect(result).toEqual(expectedFallbacks('I need'));
   });
 });
@@ -129,7 +129,7 @@ describe('getPredictions — fallback matches constants/fallbacks.ts', () => {
   it('fallback for "I need" matches FALLBACK_PREDICTIONS["I need"]', async () => {
     mockInvoke.mockRejectedValueOnce(new Error('offline'));
 
-    const result = await getPredictions('I need', [], 'object', 'morning', [], []);
+    const result = await getPredictions('I need', 'morning');
     const expectedTexts = FALLBACK_PREDICTIONS['I need'];
     expect(result.map((r) => r.text)).toEqual(expectedTexts);
   });
@@ -137,7 +137,7 @@ describe('getPredictions — fallback matches constants/fallbacks.ts', () => {
   it('fallback for "I feel" matches FALLBACK_PREDICTIONS["I feel"]', async () => {
     mockInvoke.mockRejectedValueOnce(new Error('offline'));
 
-    const result = await getPredictions('I feel', [], 'object', 'evening', [], []);
+    const result = await getPredictions('I feel', 'evening');
     const expectedTexts = FALLBACK_PREDICTIONS['I feel'];
     expect(result.map((r) => r.text)).toEqual(expectedTexts);
   });
@@ -145,7 +145,7 @@ describe('getPredictions — fallback matches constants/fallbacks.ts', () => {
   it('fallback for unknown intent falls back to "I need"', async () => {
     mockInvoke.mockRejectedValueOnce(new Error('offline'));
 
-    const result = await getPredictions('Unknown intent', [], 'object', 'morning', [], []);
+    const result = await getPredictions('Unknown intent', 'morning');
     const expectedTexts = FALLBACK_PREDICTIONS['I need'];
     expect(result.map((r) => r.text)).toEqual(expectedTexts);
   });
@@ -155,13 +155,13 @@ describe('getPredictions — fallback matches constants/fallbacks.ts', () => {
 
 describe('getModifiers — fallback', () => {
   it('returns string[] of modifier words, not ComposeItem[]', async () => {
-    const result = await getModifiers('I need', ['water'], 'coffee');
+    const result = await getModifiers('I need water', 'coffee');
     expect(typeof result[0]).toBe('string');
     expect(result).toContain('and');
   });
 
   it('returns at least 3 fallback modifiers', async () => {
-    const result = await getModifiers('I want', [], 'coffee');
+    const result = await getModifiers('I want', 'coffee');
     expect(result.length).toBeGreaterThanOrEqual(3);
     result.forEach((m) => expect(typeof m).toBe('string'));
   });

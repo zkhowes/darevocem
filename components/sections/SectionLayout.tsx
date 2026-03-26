@@ -13,6 +13,7 @@ interface SectionLayoutProps {
   onPhraseSave: () => void;
   onPhraseNavigateUp: () => void;
   onPhraseSpeak?: () => void;
+  onPhraseLongPress?: () => void;
 }
 
 export function SectionLayout({
@@ -21,6 +22,7 @@ export function SectionLayout({
   onPhraseSave,
   onPhraseNavigateUp,
   onPhraseSpeak,
+  onPhraseLongPress,
 }: SectionLayoutProps) {
   const router = useRouter();
 
@@ -52,6 +54,7 @@ export function SectionLayout({
           onNavigateUp={onPhraseNavigateUp}
           onSave={onPhraseSave}
           onSpeak={onPhraseSpeak}
+          onLongPress={onPhraseLongPress}
         />
       </SafeAreaView>
     </ErrorBoundary>

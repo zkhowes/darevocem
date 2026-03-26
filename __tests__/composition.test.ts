@@ -158,8 +158,8 @@ describe('CompositionStore — preload', () => {
   });
 });
 
-describe('CompositionStore — advance (right swipe)', () => {
-  it('pushes current predictions to history, adds slot, and sets new predictions', () => {
+describe('CompositionStore — advance (double-tap)', () => {
+  it('pushes current predictions to history with source=advance, adds slot, and sets new predictions', () => {
     useCompositionStore.getState().setIntent('I need');
     useCompositionStore.getState().setPredictions(mockPredictions);
     useCompositionStore.getState().advance('water', mockPredictions2);
@@ -168,18 +168,54 @@ describe('CompositionStore — advance (right swipe)', () => {
     expect(predictions).toEqual(mockPredictions2);
     expect(predictionHistory).toHaveLength(1);
     expect(predictionHistory[0].slot).toBe('water');
+    expect(predictionHistory[0].source).toBe('advance');
     expect(predictionHistory[0].predictions).toEqual(mockPredictions);
   });
 });
 
+describe('CompositionStore — refine (right swipe)', () => {
+  it('pushes history with source=refine and replaces predictions', () => {
+    useCompositionStore.getState().setIntent('I need');
+    useCompositionStore.getState().setPredictions(mockPredictions);
+    useCompositionStore.getState().refine('water', mockPredictions2);
+    const { slots, predictions, predictionHistory } = useCompositionStore.getState();
+    expect(slots).toEqual([]); // refine does NOT add a slot
+    expect(predictions).toEqual(mockPredictions2);
+    expect(predictionHistory).toHaveLength(1);
+    expect(predictionHistory[0].source).toBe('refine');
+  });
+
+  it('no-ops when new predictions are identical to current', () => {
+    useCompositionStore.getState().setPredictions(mockPredictions);
+    useCompositionStore.getState().refine('water', mockPredictions);
+    const { predictionHistory } = useCompositionStore.getState();
+    expect(predictionHistory).toHaveLength(0); // nothing pushed
+  });
+});
+
 describe('CompositionStore — backtrack (left swipe with history)', () => {
-  it('pops prediction history and removes last slot', () => {
+  it('pops advance entry and removes last slot', () => {
     useCompositionStore.getState().setIntent('I need');
     useCompositionStore.getState().setPredictions(mockPredictions);
     useCompositionStore.getState().advance('water', mockPredictions2);
     useCompositionStore.getState().backtrack();
     const { slots, predictions, predictionHistory } = useCompositionStore.getState();
     expect(slots).toEqual([]);
+    expect(predictions).toEqual(mockPredictions);
+    expect(predictionHistory).toHaveLength(0);
+  });
+
+  it('pops refine entry WITHOUT removing a slot', () => {
+    useCompositionStore.getState().setIntent('I need');
+    useCompositionStore.getState().addSlot('water');
+    useCompositionStore.getState().setPredictions(mockPredictions);
+    useCompositionStore.getState().refine('help', mockPredictions2);
+    // Slot count should still be 1 after refine
+    expect(useCompositionStore.getState().slots).toEqual(['water']);
+    // Now backtrack — should restore predictions but NOT remove the slot
+    useCompositionStore.getState().backtrack();
+    const { slots, predictions, predictionHistory } = useCompositionStore.getState();
+    expect(slots).toEqual(['water']); // slot preserved!
     expect(predictions).toEqual(mockPredictions);
     expect(predictionHistory).toHaveLength(0);
   });
@@ -193,10 +229,23 @@ describe('CompositionStore — backtrack (left swipe with history)', () => {
   });
 });
 
-describe('CompositionStore — recordTriedPath', () => {
-  it('adds a path to triedPaths', () => {
-    useCompositionStore.getState().recordTriedPath(['I need', 'water', 'cold']);
-    expect(useCompositionStore.getState().triedPaths).toEqual([['I need', 'water', 'cold']]);
+describe('CompositionStore — recordTriedItem', () => {
+  it('adds individual items to triedItems', () => {
+    useCompositionStore.getState().recordTriedItem('water');
+    useCompositionStore.getState().recordTriedItem('coffee');
+    expect(useCompositionStore.getState().triedItems).toEqual(['water', 'coffee']);
+  });
+
+  it('does not duplicate items', () => {
+    useCompositionStore.getState().recordTriedItem('water');
+    useCompositionStore.getState().recordTriedItem('water');
+    expect(useCompositionStore.getState().triedItems).toEqual(['water']);
+  });
+
+  it('clearTriedItems resets the list', () => {
+    useCompositionStore.getState().recordTriedItem('water');
+    useCompositionStore.getState().clearTriedItems();
+    expect(useCompositionStore.getState().triedItems).toEqual([]);
   });
 });
 
@@ -256,13 +305,13 @@ describe('CompositionStore — preloadCommonItem', () => {
 });
 
 describe('CompositionStore — reset clears new fields', () => {
-  it('clears predictionHistory, triedPaths, and modifierState on reset', () => {
+  it('clears predictionHistory, triedItems, and modifierState on reset', () => {
     useCompositionStore.getState().setModifiers('coffee', ['and']);
-    useCompositionStore.getState().recordTriedPath(['I need', 'water']);
+    useCompositionStore.getState().recordTriedItem('water');
     useCompositionStore.getState().reset();
-    const { predictionHistory, triedPaths, modifierState } = useCompositionStore.getState();
+    const { predictionHistory, triedItems, modifierState } = useCompositionStore.getState();
     expect(predictionHistory).toEqual([]);
-    expect(triedPaths).toEqual([]);
+    expect(triedItems).toEqual([]);
     expect(modifierState).toBeNull();
   });
 });

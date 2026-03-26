@@ -17,4 +17,7 @@ module.exports = {
     '^react$': '<rootDir>/__mocks__/react.js',
   },
   testPathIgnorePatterns: ['/node_modules/'],
+  globals: {
+    __DEV__: true,
+  },
 };

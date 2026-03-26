@@ -8,6 +8,23 @@ import { useAuthStore } from '../../stores/auth';
 import { ErrorBoundary } from '../../components/shared/ErrorBoundary';
 import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
 
+function ProfileCard() {
+  const profile = useAuthStore((s) => s.profile);
+  if (!profile) return null;
+  const name = [profile.firstName, profile.lastName].filter(Boolean).join(' ') || profile.displayName || 'User';
+  return (
+    <View style={styles.profileCard}>
+      <View style={styles.profileAvatar}>
+        <Text style={styles.profileInitial}>{name[0]?.toUpperCase() ?? '?'}</Text>
+      </View>
+      <View style={styles.profileInfo}>
+        <Text style={styles.profileName}>{name}</Text>
+        {profile.dateOfBirth && <Text style={styles.profileDetail}>DOB: {profile.dateOfBirth}</Text>}
+      </View>
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const router = useRouter();
   const signOut = useAuthStore((s) => s.signOut);
@@ -31,6 +48,9 @@ export default function SettingsScreen() {
         </View>
 
         <ScrollView style={styles.scroll}>
+          {/* User profile card */}
+          <ProfileCard />
+
           <View style={styles.row}>
             <Text style={styles.label}>Dark mode</Text>
             <Switch
@@ -109,4 +129,18 @@ const styles = StyleSheet.create({
     marginTop: 24, alignItems: 'center',
   },
   signOutText: { fontSize: TYPOGRAPHY.listItem.size, fontWeight: '500', color: '#C0392B' },
+  profileCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#FFFFFF', borderRadius: 12, padding: 20,
+    marginBottom: 24,
+  },
+  profileAvatar: {
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: '#E07B2E', alignItems: 'center', justifyContent: 'center',
+    marginRight: 16,
+  },
+  profileInitial: { fontSize: 22, fontWeight: '700', color: '#FFFFFF' },
+  profileInfo: { flex: 1 },
+  profileName: { fontSize: 20, fontWeight: '600', color: '#1A1A1A' },
+  profileDetail: { fontSize: 14, color: '#6B6B6B', marginTop: 2 },
 });
