@@ -89,6 +89,8 @@ export async function getPredictions(
     if (__DEV__) {
       const elapsed = Date.now() - startMs;
       console.log(`[Predict] next "${fullPhrase}" → ${data?.predictions?.length ?? 0} results (${elapsed}ms, fallback=${data?.fallback ?? 'error'})`);
+      if (error) console.log('[Predict] INVOKE ERROR:', error?.message ?? error);
+      if (data?.claudeError) console.log('[Predict] CLAUDE ERROR:', data.claudeError);
       if (data?.debug) console.log('[Predict] debug:', JSON.stringify(data.debug, null, 2));
     }
 

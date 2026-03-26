@@ -49,16 +49,28 @@ Rules:
 
 JSON format: {"phrases": [{"text": "I need coffee and cream"}, {"text": "What time is my appointment"}]}`;
 
+interface ClaudeResult {
+  text: string;
+  latencyMs: number;
+  error?: string;
+}
+
 async function callClaude(
   systemPrompt: string,
   userMessage: string,
   maxTokens: number,
   temperature: number,
   timeoutMs: number,
-): Promise<{ text: string; latencyMs: number } | null> {
+): Promise<ClaudeResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const startMs = Date.now();
+
+  // Check API key is present
+  if (!ANTHROPIC_API_KEY) {
+    clearTimeout(timeout);
+    return { text: '', latencyMs: 0, error: 'ANTHROPIC_API_KEY not set' };
+  }
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -82,22 +94,25 @@ async function callClaude(
     const latencyMs = Date.now() - startMs;
 
     if (!response.ok) {
-      console.error(`[predict] Claude returned ${response.status}: ${await response.text()}`);
-      return null;
+      const errBody = await response.text();
+      const errMsg = `Claude ${response.status}: ${errBody.slice(0, 200)}`;
+      console.error(`[predict] ${errMsg}`);
+      return { text: '', latencyMs, error: errMsg };
     }
 
     const result = await response.json();
-    const text = result.content?.[0]?.text ?? '';
+    let text = result.content?.[0]?.text ?? '';
+    // Claude sometimes wraps JSON in markdown fences despite instructions
+    text = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
     return { text, latencyMs };
   } catch (err: any) {
     clearTimeout(timeout);
     const latencyMs = Date.now() - startMs;
-    if (err.name === 'AbortError') {
-      console.error(`[predict] Claude timed out after ${latencyMs}ms (budget: ${timeoutMs}ms)`);
-    } else {
-      console.error(`[predict] Claude error after ${latencyMs}ms:`, err.message);
-    }
-    return null;
+    const errMsg = err.name === 'AbortError'
+      ? `Timeout after ${latencyMs}ms (budget: ${timeoutMs}ms)`
+      : `${err.name}: ${err.message}`;
+    console.error(`[predict] ${errMsg}`);
+    return { text: '', latencyMs, error: errMsg };
   }
 }
 
@@ -110,17 +125,21 @@ function jsonResponse(body: any, status = 200): Response {
 
 Deno.serve(async (req: Request) => {
   try {
-    // Auth
+    // Auth — verify user identity. If auth fails, we still serve predictions
+    // (they're read-only AI calls) but skip user-specific pattern lookups.
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
-    }
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+    let userId: string | null = null;
+
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError) {
+        console.error('[predict] Auth warning:', authError.message);
+        // Don't return 401 — continue without user context
+      } else if (user) {
+        userId = user.id;
+      }
     }
 
     const body = await req.json();
@@ -135,8 +154,8 @@ Day of week: ${new Date().toLocaleDateString('en-US', { weekday: 'long' })}
 Generate 5-8 complete phrases this person is most likely to want to say right now.`;
 
       const result = await callClaude(COMMON_PHRASES_PROMPT, userMessage, 300, 0.7, 4000);
-      if (!result) {
-        return jsonResponse({ phrases: [], fallback: true });
+      if (result.error) {
+        return jsonResponse({ phrases: [], fallback: true, claudeError: result.error });
       }
 
       try {
@@ -148,7 +167,7 @@ Generate 5-8 complete phrases this person is most likely to want to say right no
         });
       } catch {
         console.error('[predict] Failed to parse common phrases JSON:', result.text);
-        return jsonResponse({ phrases: [], fallback: true });
+        return jsonResponse({ phrases: [], fallback: true, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
       }
     }
 
@@ -168,8 +187,8 @@ Also avoid these (already on screen or previously rejected): ${avoidList.join(',
 Suggest 5 alternatives related to "${targetItem}" that naturally continue this sentence.`;
 
       const result = await callClaude(REFINE_SYSTEM_PROMPT, userMessage, 200, 0.8, 4000);
-      if (!result) {
-        return jsonResponse({ predictions: [], fallback: true });
+      if (result.error) {
+        return jsonResponse({ predictions: [], fallback: true, claudeError: result.error });
       }
 
       try {
@@ -181,7 +200,7 @@ Suggest 5 alternatives related to "${targetItem}" that naturally continue this s
         });
       } catch {
         console.error('[predict] Failed to parse refine JSON:', result.text);
-        return jsonResponse({ predictions: [], fallback: true });
+        return jsonResponse({ predictions: [], fallback: true, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
       }
     }
 
@@ -192,8 +211,8 @@ Suggest 5 alternatives related to "${targetItem}" that naturally continue this s
 Return ONLY valid JSON: {"modifiers": ["and", "or", "with"]}`;
 
       const result = await callClaude(SYSTEM_PROMPT, userMessage, 100, 0.5, 4000);
-      if (!result) {
-        return jsonResponse({ modifiers: [] });
+      if (result.error) {
+        return jsonResponse({ modifiers: [], claudeError: result.error });
       }
 
       try {
@@ -207,23 +226,25 @@ Return ONLY valid JSON: {"modifiers": ["and", "or", "with"]}`;
     // === Next word prediction (default) ===
     const { triedItems } = body;
 
-    // Fetch user's recent selections for this time of day (non-blocking if slow)
+    // Fetch user's recent selections for this time of day (skip if no auth)
     let topSelections: string[] = [];
-    try {
-      const { data: patterns } = await supabase
-        .from('usage_events')
-        .select('item_text')
-        .eq('user_id', user.id)
-        .eq('event_type', 'select')
-        .eq('time_of_day', timeOfDay ?? 'morning')
-        .order('created_at', { ascending: false })
-        .limit(10);
+    if (userId) {
+      try {
+        const { data: patterns } = await supabase
+          .from('usage_events')
+          .select('item_text')
+          .eq('user_id', userId)
+          .eq('event_type', 'select')
+          .eq('time_of_day', timeOfDay ?? 'morning')
+          .order('created_at', { ascending: false })
+          .limit(10);
 
-      topSelections = (patterns ?? [])
-        .map((p: { item_text: string | null }) => p.item_text)
-        .filter(Boolean) as string[];
-    } catch {
-      // DB query failed — proceed without patterns
+        topSelections = (patterns ?? [])
+          .map((p: { item_text: string | null }) => p.item_text)
+          .filter(Boolean) as string[];
+      } catch {
+        // DB query failed — proceed without patterns
+      }
     }
 
     const avoidStr = triedItems && triedItems.length > 0
@@ -239,8 +260,8 @@ Return ONLY valid JSON: {"modifiers": ["and", "or", "with"]}`;
 What word or short phrase comes next?${patternsStr}${avoidStr}`;
 
     const result = await callClaude(SYSTEM_PROMPT, userMessage, 200, 0.7, 4000);
-    if (!result) {
-      return jsonResponse({ predictions: [], fallback: true });
+    if (result.error) {
+      return jsonResponse({ predictions: [], fallback: true, claudeError: result.error });
     }
 
     try {
@@ -250,12 +271,12 @@ What word or short phrase comes next?${patternsStr}${avoidStr}`;
         fallback: false,
         debug: { promptSent: userMessage, rawResponse: result.text, latencyMs: result.latencyMs, source: 'claude' },
       });
-    } catch {
+    } catch (parseErr: any) {
       console.error('[predict] Failed to parse prediction JSON:', result.text);
-      return jsonResponse({ predictions: [], fallback: true });
+      return jsonResponse({ predictions: [], fallback: true, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
     }
   } catch (err: any) {
     console.error('[predict] Unhandled error:', err.message);
-    return jsonResponse({ predictions: [], fallback: true });
+    return jsonResponse({ predictions: [], fallback: true, claudeError: `Unhandled: ${err.message}` });
   }
 });

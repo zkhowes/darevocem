@@ -98,13 +98,18 @@ export default function ComposeScreen() {
 
     state.setLoading(true);
     try {
+      // Debug: check if we have a valid session token
+      if (__DEV__) {
+        const { data: { session } } = await supabase.auth.getSession();
+        console.log('[REFINE] session token?', session?.access_token ? `yes (${session.access_token.slice(0, 20)}...)` : 'NO SESSION');
+      }
       const currentState = useCompositionStore.getState();
       const fullPhrase = [currentState.intent, ...currentState.slots].filter(Boolean).join(' ');
       const otherOptions = currentState.predictions
         .filter((p) => p.text !== item.text)
         .map((p) => p.text);
 
-      const { data } = await supabase.functions.invoke('predict', {
+      const { data, error } = await supabase.functions.invoke('predict', {
         body: {
           fullPhrase,
           targetItem: item.text,
@@ -113,6 +118,10 @@ export default function ComposeScreen() {
           requestType: 'refine',
         },
       });
+
+      if (__DEV__) {
+        console.log('[REFINE] invoke result:', { data: JSON.stringify(data)?.slice(0, 200), error: error?.message ?? error });
+      }
 
       const items = (data?.predictions ?? []).map((p: { text: string }, i: number) => ({
         id: `refine-${i}-${Date.now()}`,
@@ -131,6 +140,7 @@ export default function ComposeScreen() {
           predictions: items.map((p: { text: string }) => p.text),
           latencyMs: data?.debug?.latencyMs,
           source: items.length > 0 ? (data?.fallback ? 'fallback' : 'claude') : 'empty',
+          error: error?.message ?? data?.claudeError ?? (data?.error ? String(data.error) : undefined),
         });
       }
 

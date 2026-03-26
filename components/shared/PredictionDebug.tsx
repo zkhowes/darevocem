@@ -13,6 +13,7 @@ interface DebugEntry {
   latencyMs?: number;
   source: string; // 'claude' | 'fallback' | 'refine'
   focusedItem?: string;
+  error?: string;
 }
 
 // Global log that components can push to
@@ -69,6 +70,9 @@ export function PredictionDebug() {
                 <Text style={styles.detail}>
                   results ({entry.source}, {entry.latencyMs ?? '?'}ms):
                 </Text>
+                {entry.error && (
+                  <Text style={styles.errorText}>ERROR: {entry.error}</Text>
+                )}
                 {entry.predictions.map((p, j) => (
                   <Text key={j} style={styles.prediction}>  {j + 1}. {p}</Text>
                 ))}
@@ -138,6 +142,12 @@ const styles = StyleSheet.create({
     color: '#AAA',
     fontSize: 11,
     fontFamily: 'monospace',
+  },
+  errorText: {
+    color: '#F44',
+    fontSize: 12,
+    fontFamily: 'monospace',
+    fontWeight: '700',
   },
   prediction: {
     color: '#0FF',
