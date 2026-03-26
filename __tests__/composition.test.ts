@@ -315,3 +315,119 @@ describe('CompositionStore — reset clears new fields', () => {
     expect(modifierState).toBeNull();
   });
 });
+
+// ─── REGRESSION TESTS ────────────────────────────────────────────────────────
+// These tests prevent bugs we spent 2 days fixing from coming back.
+
+describe('REGRESSION — refine() never blanks the prediction list', () => {
+  it('refine() with empty predictions array is a no-op', () => {
+    useCompositionStore.getState().setPredictions(mockPredictions);
+    useCompositionStore.getState().refine('water', []);
+    // Predictions must still be the original set — never blanked
+    expect(useCompositionStore.getState().predictions).toEqual(mockPredictions);
+    // No history entry pushed either
+    expect(useCompositionStore.getState().predictionHistory).toHaveLength(0);
+  });
+
+  it('refine() with empty array does not push to predictionHistory', () => {
+    useCompositionStore.getState().setPredictions(mockPredictions);
+    useCompositionStore.getState().refine('water', []);
+    useCompositionStore.getState().refine('help', []);
+    // Multiple empty refines should all be no-ops
+    expect(useCompositionStore.getState().predictionHistory).toHaveLength(0);
+    expect(useCompositionStore.getState().predictions).toEqual(mockPredictions);
+  });
+});
+
+describe('REGRESSION — recordTriedItem only records individual items', () => {
+  it('records a single string, not an array', () => {
+    useCompositionStore.getState().recordTriedItem('coffee');
+    const { triedItems } = useCompositionStore.getState();
+    expect(triedItems).toEqual(['coffee']);
+    // Each entry must be a string, never an array
+    triedItems.forEach((item) => {
+      expect(typeof item).toBe('string');
+      expect(Array.isArray(item)).toBe(false);
+    });
+  });
+
+  it('multiple recordTriedItem calls build a flat list of strings', () => {
+    useCompositionStore.getState().recordTriedItem('coffee');
+    useCompositionStore.getState().recordTriedItem('tea');
+    useCompositionStore.getState().recordTriedItem('juice');
+    const { triedItems } = useCompositionStore.getState();
+    expect(triedItems).toEqual(['coffee', 'tea', 'juice']);
+    // Verify no nesting — the old triedPaths bug stored arrays of arrays
+    expect(triedItems.flat()).toEqual(triedItems);
+  });
+});
+
+describe('REGRESSION — clearTriedItems resets to empty', () => {
+  it('clearTriedItems after multiple recordings gives empty array', () => {
+    useCompositionStore.getState().recordTriedItem('water');
+    useCompositionStore.getState().recordTriedItem('coffee');
+    useCompositionStore.getState().recordTriedItem('tea');
+    useCompositionStore.getState().clearTriedItems();
+    expect(useCompositionStore.getState().triedItems).toEqual([]);
+  });
+
+  it('clearTriedItems on already-empty triedItems is safe', () => {
+    useCompositionStore.getState().clearTriedItems();
+    expect(useCompositionStore.getState().triedItems).toEqual([]);
+  });
+});
+
+describe('REGRESSION — recordTriedItem deduplicates', () => {
+  it('same item recorded twice results in only one entry', () => {
+    useCompositionStore.getState().recordTriedItem('coffee');
+    useCompositionStore.getState().recordTriedItem('coffee');
+    expect(useCompositionStore.getState().triedItems).toEqual(['coffee']);
+    expect(useCompositionStore.getState().triedItems).toHaveLength(1);
+  });
+
+  it('deduplication is exact-match (case-sensitive)', () => {
+    useCompositionStore.getState().recordTriedItem('Coffee');
+    useCompositionStore.getState().recordTriedItem('coffee');
+    // These are different strings — both should be recorded
+    expect(useCompositionStore.getState().triedItems).toEqual(['Coffee', 'coffee']);
+  });
+});
+
+describe('REGRESSION — addSlot + clearTriedItems gives fresh state', () => {
+  it('selecting a word then clearing triedItems resets prediction space', () => {
+    // Simulate: user rejects some items, then selects a word
+    useCompositionStore.getState().setIntent('I need');
+    useCompositionStore.getState().setPredictions(mockPredictions);
+    useCompositionStore.getState().recordTriedItem('water');
+    useCompositionStore.getState().recordTriedItem('help');
+    expect(useCompositionStore.getState().triedItems).toHaveLength(2);
+
+    // User double-taps to select — app should clear tried items
+    useCompositionStore.getState().addSlot('coffee');
+    useCompositionStore.getState().clearTriedItems();
+
+    // Fresh state: slot added, tried items cleared
+    expect(useCompositionStore.getState().slots).toEqual(['coffee']);
+    expect(useCompositionStore.getState().triedItems).toEqual([]);
+  });
+
+  it('triedItems do not carry over across word selections', () => {
+    useCompositionStore.getState().setIntent('I need');
+    useCompositionStore.getState().recordTriedItem('water');
+
+    // First selection
+    useCompositionStore.getState().addSlot('coffee');
+    useCompositionStore.getState().clearTriedItems();
+    expect(useCompositionStore.getState().triedItems).toEqual([]);
+
+    // New rejections for next prediction round
+    useCompositionStore.getState().recordTriedItem('and');
+    expect(useCompositionStore.getState().triedItems).toEqual(['and']);
+
+    // Second selection
+    useCompositionStore.getState().addSlot('please');
+    useCompositionStore.getState().clearTriedItems();
+    expect(useCompositionStore.getState().triedItems).toEqual([]);
+    expect(useCompositionStore.getState().slots).toEqual(['coffee', 'please']);
+  });
+});

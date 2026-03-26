@@ -14,7 +14,6 @@ import { getPredictions, getCommonPhrases } from '../../services/predictions';
 import { speakPhrase } from '../../services/tts';
 import { supabase } from '../../services/supabase';
 import { LAYOUT } from '../../constants/config';
-import { generateId } from '../../types';
 import type { ComposeItem } from '../../types';
 
 declare const __DEV__: boolean;
@@ -98,11 +97,6 @@ export default function ComposeScreen() {
 
     state.setLoading(true);
     try {
-      // Debug: check if we have a valid session token
-      if (__DEV__) {
-        const { data: { session } } = await supabase.auth.getSession();
-        console.log('[REFINE] session token?', session?.access_token ? `yes (${session.access_token.slice(0, 20)}...)` : 'NO SESSION');
-      }
       const currentState = useCompositionStore.getState();
       const fullPhrase = [currentState.intent, ...currentState.slots].filter(Boolean).join(' ');
       const otherOptions = currentState.predictions
