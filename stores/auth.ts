@@ -47,6 +47,7 @@ interface AuthState {
   initialize: () => Promise<void>;
   cleanup: () => void;
   signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -123,6 +124,35 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (sessionError) {
       throw sessionError;
     }
+  },
+
+  signInWithApple: async () => {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'apple',
+      options: {
+        redirectTo,
+        skipBrowserRedirect: true,
+      },
+    });
+    if (error) throw error;
+    if (!data.url) throw new Error('No OAuth URL returned');
+
+    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+    if (result.type !== 'success' || !('url' in result)) return;
+
+    const url = new URL(result.url);
+    const code = url.searchParams.get('code');
+    if (!code) {
+      const hashParams = new URLSearchParams(url.hash.substring(1));
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+      if (accessToken && refreshToken) {
+        await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      }
+      return;
+    }
+
+    await supabase.auth.exchangeCodeForSession(code);
   },
 
   signOut: async () => {

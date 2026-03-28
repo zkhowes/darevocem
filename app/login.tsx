@@ -15,12 +15,17 @@ const COLORS = {
 
 export default function LoginScreen() {
   const signInWithGoogle = useAuthStore((s) => s.signInWithGoogle);
+  const signInWithApple = useAuthStore((s) => s.signInWithApple);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSignIn = async () => {
+  const handleSignIn = async (provider: 'google' | 'apple') => {
     try {
       setError(null);
-      await signInWithGoogle();
+      if (provider === 'apple') {
+        await signInWithApple();
+      } else {
+        await signInWithGoogle();
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -33,7 +38,10 @@ export default function LoginScreen() {
       <Text style={styles.title}>Dare Vocem</Text>
       <Text style={styles.subtitle}>to give voice</Text>
       {error && <Text style={styles.error}>{error}</Text>}
-      <Pressable style={styles.button} onPress={handleSignIn}>
+      <Pressable style={styles.appleButton} onPress={() => handleSignIn('apple')}>
+        <Text style={styles.appleButtonText}>Sign in with Apple</Text>
+      </Pressable>
+      <Pressable style={styles.button} onPress={() => handleSignIn('google')}>
         <Text style={styles.buttonText}>Sign in with Google</Text>
       </Pressable>
     </View>
@@ -67,6 +75,20 @@ const styles = StyleSheet.create({
     color: COLORS.error,
     marginBottom: 16,
     textAlign: 'center',
+  },
+  appleButton: {
+    backgroundColor: '#000000',
+    paddingVertical: 18,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    minWidth: 280,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  appleButtonText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   button: {
     backgroundColor: COLORS.surface,
