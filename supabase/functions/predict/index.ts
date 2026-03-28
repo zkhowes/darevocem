@@ -19,7 +19,9 @@ Rules:
 - Return ONLY valid JSON. No markdown, no explanation, no preamble.
 - Predict 5 next words or short phrases (1-3 words each) that naturally continue the sentence.
 - Rank by likelihood — most probable first.
-- Each prediction should be a DIFFERENT direction the sentence could go. Don't cluster synonyms.
+- Each prediction must represent a DIFFERENT logical path the sentence could take:
+  P1, P2: high-probability completions (may be in the same category).
+  P3, P4, P5: significantly different directions — vary the part of speech, semantic category, or sentence structure. Example: if P1 is a noun ("coffee"), P3 could be a verb ("go"), P4 an adjective ("comfortable"), P5 a phrase ("to talk to someone").
 - NEVER repeat any word already in the sentence.
 - Predictions must be grammatically correct continuations.
 - Be warm, practical, conversational. This is casual speech, not formal writing.
@@ -168,6 +170,33 @@ Generate 5-8 complete phrases this person is most likely to want to say right no
       } catch {
         console.error('[predict] Failed to parse common phrases JSON:', result.text);
         return jsonResponse({ phrases: [], fallback: true, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
+      }
+    }
+
+    // === Intent alternative (swipe-left on intent to cycle) ===
+    if (requestType === 'intent_alternative') {
+      const userMessage = `The user started their sentence with: "${fullPhrase}"
+They want a different way to start. They've already tried: ${(body.triedItems ?? []).join(', ') || 'nothing yet'}
+
+Suggest ONE alternative sentence starter (2-4 words) that expresses a similar or different need.
+Examples of sentence starters: "I need", "I want", "Can you", "Please help me", "How do I", "Where is", "Tell me about", "I feel"
+
+Return ONLY valid JSON: {"intent": "I want"}`;
+
+      const result = await callClaude(SYSTEM_PROMPT, userMessage, 100, 0.8, 4000);
+      if (result.error) {
+        return jsonResponse({ intent: null, claudeError: result.error });
+      }
+
+      try {
+        const parsed = JSON.parse(result.text);
+        return jsonResponse({
+          intent: parsed.intent ?? null,
+          debug: { promptSent: userMessage, rawResponse: result.text, latencyMs: result.latencyMs, source: 'claude' },
+        });
+      } catch {
+        console.error('[predict] Failed to parse intent_alternative JSON:', result.text);
+        return jsonResponse({ intent: null, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
       }
     }
 

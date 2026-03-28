@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { View, Text, TextInput, StyleSheet, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WheelPicker } from '../../components/shared/WheelPicker';
 import { StarterCard } from '../../components/home/StarterCard';
 import { ErrorBoundary } from '../../components/shared/ErrorBoundary';
@@ -13,6 +14,8 @@ import { INTENTS, DEFAULT_INTENT_BY_TIME } from '../../constants/intents';
 import { LAYOUT } from '../../constants/config';
 import { supabase } from '../../services/supabase';
 import type { GestureAction, WheelPickerItem, SavedPhrase, ComposeItem } from '../../types';
+
+const INTRO_SEEN_KEY = 'darevocem_intro_phrase_seen';
 
 declare const __DEV__: boolean;
 
@@ -26,6 +29,32 @@ export default function HomeScreen() {
   const [recordMode, setRecordMode] = useState<'record' | 'keyboard'>('record');
   const [keyboardText, setKeyboardText] = useState('');
   const keyboardRef = useRef<TextInput>(null);
+  const [introPhrase, setIntroPhrase] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Show the aphasia intro phrase once after onboarding
+  useEffect(() => {
+    AsyncStorage.getItem(INTRO_SEEN_KEY).then((seen) => {
+      if (seen) return;
+      // Find the intro phrase in saved_phrases
+      supabase
+        .from('saved_phrases')
+        .select('text')
+        .ilike('category', 'introductions')
+        .ilike('text', '%aphasia%')
+        .limit(1)
+        .then(({ data }) => {
+          if (data && data.length > 0) {
+            setIntroPhrase(data[0].text);
+          }
+        });
+    });
+  }, []);
+
+  const dismissIntro = useCallback(() => {
+    AsyncStorage.setItem(INTRO_SEEN_KEY, 'true');
+    setIntroPhrase(null);
+  }, []);
 
   // Fetch AI-generated common phrases and saved phrases on mount
   useEffect(() => {
@@ -180,12 +209,30 @@ export default function HomeScreen() {
       <SafeAreaView style={styles.container}>
         {/* Nav bar with hamburger */}
         <View style={styles.nav}>
-          <Pressable onPress={() => router.push('/(app)/settings' as never)} hitSlop={12}>
+          <Pressable onPress={() => setMenuOpen((v) => !v)} hitSlop={12}>
             <Text style={styles.navIcon}>☰</Text>
           </Pressable>
           <Text style={styles.title}>DARE VOCEM</Text>
           <View style={{ width: 34 }} />
         </View>
+
+        {/* Hamburger menu */}
+        {menuOpen && (
+          <View style={styles.menu}>
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => { setMenuOpen(false); router.push('/(app)/profile' as never); }}
+            >
+              <Text style={styles.menuItemText}>Profile</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.menuItem, { borderBottomWidth: 0 }]}
+              onPress={() => { setMenuOpen(false); router.push('/(app)/settings' as never); }}
+            >
+              <Text style={styles.menuItemText}>Settings</Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* Keyboard input card (Record placeholder — mic not yet implemented) */}
         <Pressable
@@ -221,6 +268,20 @@ export default function HomeScreen() {
             </View>
           )}
         </Pressable>
+
+        {/* Intro phrase — shown once after onboarding */}
+        {introPhrase && (
+          <View style={styles.introBanner}>
+            <Text style={styles.introBannerLabel}>Your introduction phrase</Text>
+            <Text style={styles.introBannerText}>{introPhrase}</Text>
+            <Text style={styles.introBannerHint}>
+              Find this anytime in Saved &gt; Introductions
+            </Text>
+            <Pressable style={styles.introDismiss} onPress={dismissIntro}>
+              <Text style={styles.introDismissText}>Got it</Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* Debug: data loading status */}
         {__DEV__ && (
@@ -329,5 +390,65 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingBottom: 4,
     fontFamily: 'monospace',
+  },
+  menu: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: LAYOUT.screenPadding,
+    marginBottom: 12,
+    borderRadius: 12,
+    overflow: 'hidden' as const,
+    borderWidth: 1,
+    borderColor: '#E5E5E0',
+  },
+  menuItem: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0EB',
+  },
+  menuItemText: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#1A1A1A',
+  },
+  introBanner: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: LAYOUT.screenPadding,
+    marginBottom: 16,
+    borderRadius: 12,
+    padding: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#7B68AE',
+  },
+  introBannerLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#7B68AE',
+    textTransform: 'uppercase' as const,
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  introBannerText: {
+    fontSize: 17,
+    color: '#1A1A1A',
+    lineHeight: 24,
+    marginBottom: 8,
+  },
+  introBannerHint: {
+    fontSize: 13,
+    color: '#6B6B6B',
+    marginBottom: 12,
+  },
+  introDismiss: {
+    alignSelf: 'flex-end' as const,
+    backgroundColor: '#7B68AE',
+    borderRadius: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
+  introDismissText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

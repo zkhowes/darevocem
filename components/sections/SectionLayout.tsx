@@ -78,9 +78,8 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   header: {
-    minHeight: LAYOUT.headerHeight,
-    justifyContent: 'center',
-    paddingHorizontal: LAYOUT.screenPadding,
+    // No padding here — IntentSection/CategoryHeader manage their own padding
+    // so borders extend edge-to-edge
   },
   items: {
     flex: 1,

@@ -98,11 +98,13 @@ export function WheelPicker({
   const handleGesture = useCallback(
     (gesture: GestureAction, item: WheelPickerItem, index: number) => {
       if (gesture.type === 'swipe') {
-        if (gesture.direction === 'down' && index < items.length - 1) {
+        // Swipe up (finger bottom→top) moves focus DOWN in list (scroll model)
+        if (gesture.direction === 'up' && index < items.length - 1) {
           onFocusChange(index + 1);
           return;
         }
-        if (gesture.direction === 'up' && index > 0) {
+        // Swipe down (finger top→bottom) moves focus UP in list
+        if (gesture.direction === 'down' && index > 0) {
           onFocusChange(index - 1);
           return;
         }

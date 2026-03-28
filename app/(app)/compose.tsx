@@ -26,7 +26,6 @@ export default function ComposeScreen() {
   const intent = useCompositionStore((s) => s.intent);
   const composeMode = useCompositionStore((s) => s.composeMode);
   const phraseSource = useCompositionStore((s) => s.phraseSource);
-  const [intentCollapsed, setIntentCollapsed] = useState(true);
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
 
   // On mount: load phrase-mode items or ensure predict-mode predictions exist
@@ -91,6 +90,15 @@ export default function ComposeScreen() {
   // Other predictions on screen are untouched — they represent different paths.
   const handleAdvance = useCallback(async (item: ComposeItem) => {
     const state = useCompositionStore.getState();
+    const focusIndex = useFocusStore.getState().composeIndex;
+
+    // Check if we have cached alternatives for this position from a previous refine
+    if (state.refinementQueue.length > 0 && state.refinementQueueIndex === focusIndex) {
+      const [next, ...rest] = state.refinementQueue;
+      state.recordTriedItem(item.text);
+      state.refine(focusIndex, next, rest);
+      return;
+    }
 
     // Only record the focused item as tried — not the entire prediction list
     state.recordTriedItem(item.text);
@@ -117,11 +125,12 @@ export default function ComposeScreen() {
         console.log('[REFINE] invoke result:', { data: JSON.stringify(data)?.slice(0, 200), error: error?.message ?? error });
       }
 
-      const items = (data?.predictions ?? []).map((p: { text: string }, i: number) => ({
+      const items = (data?.predictions ?? []).map((p: { text: string; wordType?: string }, i: number) => ({
         id: `refine-${i}-${Date.now()}`,
         text: p.text,
         itemType: 'prediction' as const,
         rank: i,
+        ...(p.wordType ? { wordType: p.wordType as import('../../types').WordType } : {}),
       }));
 
       if (__DEV__) {
@@ -139,7 +148,9 @@ export default function ComposeScreen() {
       }
 
       if (items.length > 0) {
-        useCompositionStore.getState().refine(item.text, items);
+        // Swap only the focused item; cache remaining alternatives for next swipe-left
+        const [replacement, ...queue] = items;
+        useCompositionStore.getState().refine(focusIndex, replacement, queue);
       }
     } finally {
       useCompositionStore.getState().setLoading(false);
@@ -170,6 +181,33 @@ export default function ComposeScreen() {
       } catch {
         state.setModifiers(item.text, FALLBACK_MODIFIERS);
       }
+    }
+  }, []);
+
+  // Re-fetch predictions when intent changes (modifier applied, cycle, etc.)
+  const handleIntentChanged = useCallback(async () => {
+    const state = useCompositionStore.getState();
+    state.setLoading(true);
+    try {
+      const fullPhrase = [state.intent, ...state.slots].filter(Boolean).join(' ');
+      const items = await getPredictions(fullPhrase, getTimeOfDay());
+      useCompositionStore.getState().setPredictions(items);
+    } finally {
+      useCompositionStore.getState().setLoading(false);
+    }
+  }, []);
+
+  // Refresh button: force re-fetch predictions for the current phrase state
+  const handleRefresh = useCallback(async () => {
+    const state = useCompositionStore.getState();
+    state.clearModifier();
+    state.setLoading(true);
+    try {
+      const fullPhrase = [state.intent, ...state.slots].filter(Boolean).join(' ');
+      const items = await getPredictions(fullPhrase, getTimeOfDay());
+      useCompositionStore.getState().setPredictions(items);
+    } finally {
+      useCompositionStore.getState().setLoading(false);
     }
   }, []);
 
@@ -282,9 +320,15 @@ export default function ComposeScreen() {
           <IntentSection
             onNavigateHome={handleNavigateHome}
             timeOfDay={getTimeOfDay()}
-            collapsed={intentCollapsed}
-            onExpand={() => setIntentCollapsed(false)}
             initialIntent={intent ?? undefined}
+            onIntentChanged={handleIntentChanged}
+            onContextAction={(action) => {
+              // TODO: wire up record, type, camera flows to replace intent
+              // For now, open keyboard input for 'type', others are future features
+              if (action === 'type') {
+                setContextMenuVisible(true);
+              }
+            }}
           />
         }
         itemsContent={
@@ -295,6 +339,7 @@ export default function ComposeScreen() {
               onModifierTap={handleModifierTap}
               onSelect={handleSelect}
               onLongPress={() => setContextMenuVisible(true)}
+              onRefresh={handleRefresh}
             />
           ) : (
             <PhraseComposeSection

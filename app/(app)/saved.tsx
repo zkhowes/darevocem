@@ -8,14 +8,16 @@ import { FocusIndicator } from '../../components/shared/FocusIndicator';
 import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
 import { supabase } from '../../services/supabase';
+import { formatTodaySpoken } from '../../utils/profileSeeding';
 import type { GestureAction, SavedPhrase } from '../../types';
 import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
 
-const CATEGORIES = ['Introductions', 'Daily', 'Social', 'Medical', 'Custom'];
+// Personal first — it's the hospital check-in category
+const CATEGORIES = ['Personal', 'Introductions', 'Medical', 'Daily', 'Social', 'Custom'];
 
 /**
  * Parse saved phrase text for variable format.
- * Convention: "Label = Value" → { label: "Label", value: "Value", isVariable: true }
+ * Convention: "Label = Value" -> { label: "Label", value: "Value", isVariable: true }
  * Otherwise: { label: null, value: text, isVariable: false }
  */
 function parsePhrase(text: string): { label: string | null; value: string; isVariable: boolean } {
@@ -24,6 +26,18 @@ function parsePhrase(text: string): { label: string | null; value: string; isVar
     return { label: text.slice(0, eqIdx), value: text.slice(eqIdx + 3), isVariable: true };
   }
   return { label: null, value: text, isVariable: false };
+}
+
+/**
+ * Resolve dynamic values in saved phrases.
+ * "Today = ..." always shows today's actual date.
+ */
+function resolveDynamicPhrase(phrase: SavedPhrase): SavedPhrase {
+  const parsed = parsePhrase(phrase.text);
+  if (parsed.isVariable && parsed.label === 'Today') {
+    return { ...phrase, text: `Today = ${formatTodaySpoken()}` };
+  }
+  return phrase;
 }
 
 export default function SavedScreen() {
@@ -51,8 +65,10 @@ export default function SavedScreen() {
         .ilike('category', category)
         .order('sort_order');
       if (data) {
-        setPhrases(data);
-        useFocusStore.getState().setComposeListSize(data.length);
+        // Resolve dynamic values (e.g. Today's date)
+        const resolved = data.map(resolveDynamicPhrase);
+        setPhrases(resolved);
+        useFocusStore.getState().setComposeListSize(resolved.length);
       }
     }
     fetchPhrases();
@@ -70,7 +86,7 @@ export default function SavedScreen() {
         break;
       case 'double-tap': {
         const parsed = parsePhrase(phrase.text);
-        // For variables (e.g., "DOB = 12/29/1981"), add only the value
+        // For variables (e.g., "DOB = December 29 1981"), add only the value
         const textToAdd = parsed.value;
         // Preload as a slot and navigate to compose so user can continue with predictions
         const store = useCompositionStore.getState();

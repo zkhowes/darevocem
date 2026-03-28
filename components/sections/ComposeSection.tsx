@@ -1,10 +1,13 @@
 import React, { useCallback } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { WheelPicker } from '../shared/WheelPicker';
 import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
+import { usePreferencesStore } from '../../stores/preferences';
+import { speakPreview, cancelPreview } from '../../services/auditoryPreview';
+import { getWordTypeColor } from '../../constants/fitzgerald';
 import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
-import type { GestureAction, ComposeItem, WheelPickerItem } from '../../types';
+import type { GestureAction, ComposeItem, WheelPickerItem, WordType } from '../../types';
 
 interface ComposeSectionProps {
   onAdvance: (item: ComposeItem) => void;
@@ -12,9 +15,10 @@ interface ComposeSectionProps {
   onModifierTap: (item: ComposeItem) => void;
   onSelect: (item: ComposeItem) => void;
   onLongPress?: () => void;
+  onRefresh?: () => void;
 }
 
-export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect, onLongPress }: ComposeSectionProps) {
+export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect, onLongPress, onRefresh }: ComposeSectionProps) {
   const predictions = useCompositionStore((s) => s.predictions);
   const isLoading = useCompositionStore((s) => s.isLoading);
   const addSlot = useCompositionStore((s) => s.addSlot);
@@ -28,22 +32,49 @@ export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect
   const moveDown = useFocusStore((s) => s.moveDown);
 
   React.useEffect(() => {
-    setComposeListSize(predictions.length);
-  }, [predictions.length]);
+    const count = displayDensity === 'simplified'
+      ? Math.min(predictions.length, 3)
+      : predictions.length;
+    setComposeListSize(count);
+  }, [predictions.length, displayDensity]);
 
-  // Convert ComposeItems to WheelPickerItems
-  const wheelItems: WheelPickerItem[] = predictions.map((p) => ({
-    id: p.id,
-    text: p.text,
-    itemType: p.itemType === 'recent' ? 'prediction' : p.itemType,
-    color: p.itemType === 'common' ? '#2B7A78' : p.itemType === 'saved' ? '#7B68AE' : '#E07B2E',
-    metadata: { rank: p.rank, value: p.value, label: p.label },
-  }));
+  const auditoryPreview = usePreferencesStore((s) => s.auditoryPreview);
+  const displayDensity = usePreferencesStore((s) => s.displayDensity);
+
+  // Convert ComposeItems to WheelPickerItems.
+  // When a wordType is present (from Claude), use Fitzgerald Key colors.
+  // Otherwise fall back to the original item-type colors.
+  const wheelItems: WheelPickerItem[] = predictions.map((p) => {
+    const wordType = p.wordType as WordType | undefined;
+    let color: string;
+    if (wordType) {
+      color = getWordTypeColor(wordType);
+    } else if (p.itemType === 'common') {
+      color = '#2B7A78';
+    } else if (p.itemType === 'saved') {
+      color = '#7B68AE';
+    } else {
+      color = '#E07B2E';
+    }
+    return {
+      id: p.id,
+      text: p.text,
+      itemType: p.itemType === 'recent' ? 'prediction' : p.itemType,
+      color,
+      metadata: { rank: p.rank, value: p.value, label: p.label, wordType },
+    };
+  });
 
   const handleFocusChange = useCallback((index: number) => {
     setComposeIndex(index);
     useCompositionStore.getState().clearModifier();
-  }, [setComposeIndex]);
+
+    // Auditory preview: speak the newly focused item so the user
+    // knows what they're on without needing to read the text.
+    if (auditoryPreview && predictions[index]) {
+      speakPreview(predictions[index].text);
+    }
+  }, [setComposeIndex, auditoryPreview, predictions]);
 
   const handleGesture = useCallback(
     (gesture: GestureAction, item: WheelPickerItem, index: number) => {
@@ -73,20 +104,35 @@ export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect
               onAdvance(prediction);
               logEvent('refine');
               break;
-            case 'right':
+            case 'right': {
+              // If a modifier is active, clear it first (undo the modifier)
+              const compState = useCompositionStore.getState();
+              if (compState.modifierState && compState.modifierState.targetItem === prediction.text) {
+                compState.clearModifier();
+                logEvent('modify');
+                break;
+              }
               // Backtrack: pop prediction history or fetch divergent predictions.
               // When history is empty, fetches divergent predictions (new path).
               onBacktrack();
               logEvent('reject');
               break;
-            case 'down':
+            }
+            case 'up':
+              // Swipe up at last item → move focus down to phrase bar
               if (index === predictions.length - 1) {
                 moveDown();
               }
               break;
+            case 'down':
+              // Swipe down at first item → move focus up to intent
+              // (handled by WheelPicker returning gesture when index === 0)
+              break;
           }
           break;
         case 'double-tap': {
+          // Cancel any auditory preview — user has committed a selection
+          cancelPreview();
           // Select item, add to phrase, fetch next predictions.
           // Unlike left-swipe (advance), this does NOT push prediction history,
           // so right-swipe won't backtrack through double-tap selections.
@@ -131,6 +177,12 @@ export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect
     [modifierState],
   );
 
+  // Simplified mode: limit visible items for bad days / cognitive overload.
+  // Same layout structure, fewer items, bigger targets.
+  const visibleItems = displayDensity === 'simplified'
+    ? wheelItems.slice(0, 3)
+    : wheelItems;
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -142,17 +194,44 @@ export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect
   }
 
   return (
-    <WheelPicker
-      items={wheelItems}
-      focusedIndex={composeIndex}
-      onFocusChange={handleFocusChange}
-      onGesture={handleGesture}
-      renderItem={renderItem}
-    />
+    <View style={styles.wrapper}>
+      <WheelPicker
+        items={visibleItems}
+        focusedIndex={composeIndex}
+        onFocusChange={handleFocusChange}
+        onGesture={handleGesture}
+        renderItem={renderItem}
+      />
+      {onRefresh && (
+        <Pressable style={styles.refreshButton} onPress={onRefresh}>
+          <Text style={styles.refreshIcon}>↻</Text>
+        </Pressable>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrapper: {
+    flex: 1,
+  },
+  refreshButton: {
+    position: 'absolute',
+    bottom: 8,
+    right: LAYOUT.screenPadding,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E5E5E0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  refreshIcon: {
+    fontSize: 20,
+    color: '#6B6B6B',
+    fontWeight: '700',
+  },
   itemContent: {
     flexDirection: 'row',
     alignItems: 'center',

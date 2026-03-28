@@ -34,6 +34,21 @@ export function generateId(): string {
 
 export type SlotType = 'object' | 'modifier' | 'qualifier';
 
+// Fitzgerald Key word categories for color coding.
+// Maps to the Modified Fitzgerald Key — the universal color system used across AAC apps.
+export type WordType =
+  | 'verb'        // green — actions: go, want, need, eat
+  | 'noun'        // orange — things: water, coffee, phone
+  | 'descriptor'  // blue — adjectives: tired, cold, more
+  | 'person'      // yellow — people: I, you, family
+  | 'question'    // purple — what, where, when
+  | 'negation'    // red — no, don't, stop
+  | 'social'      // pink — please, thank you, hello
+  | 'misc';       // grey — and, the, but
+
+// Display density for progressive disclosure (simplified mode)
+export type DisplayDensity = 'standard' | 'simplified';
+
 export interface Prediction {
   text: string;
   type: SlotType;
@@ -49,6 +64,7 @@ export interface ComposeItem {
   label?: string;
   value?: string;
   isDynamic?: boolean;
+  wordType?: WordType;
 }
 
 export interface WheelPickerItem {
@@ -180,6 +196,8 @@ export interface Preferences {
   useSystemTtsOnly: boolean;
   showFallbackButtons: boolean;
   gestureConfig: Partial<GestureConfig>;
+  auditoryPreview: boolean;
+  displayDensity: DisplayDensity;
 }
 
 // === Auth ===
@@ -195,6 +213,8 @@ export interface UserProfile {
   dateOfBirth: string | null;
   phone: string | null;
   homeAddress: string | null;
+  emergencyContact: string | null;
+  emergencyPhone: string | null;
   onboardingComplete: boolean;
 }
 

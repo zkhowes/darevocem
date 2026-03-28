@@ -1,4 +1,4 @@
-import { useRef, useCallback, useMemo } from 'react';
+import { useRef, useCallback, useMemo, useEffect } from 'react';
 import { PanResponder, type GestureResponderEvent, type PanResponderGestureState } from 'react-native';
 import type { GestureAction, GestureConfig } from '../../types';
 import { GESTURE } from '../../constants/config';
@@ -135,6 +135,12 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
     enabled: configOverrides?.enabled ?? true,
   };
 
+  // Ref keeps PanResponder in sync with latest onAction without recreating it.
+  // Without this, the PanResponder captures a stale closure and calls outdated handlers
+  // (e.g., IntentSection: collapsed handler keeps running after expanding).
+  const onActionRef = useRef(onAction);
+  onActionRef.current = onAction;
+
   const lastTapRef = useRef<number>(0);
   const tapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -156,7 +162,7 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
       // Start long press timer
       longPressTimeoutRef.current = setTimeout(() => {
         isLongPressRef.current = true;
-        onAction({ type: 'long-press' });
+        onActionRef.current({ type: 'long-press' });
       }, config.longPressMs);
     },
 
@@ -190,7 +196,7 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
           const dir = swipeAction.type === 'swipe' ? swipeAction.direction : '';
           console.log(`[Gesture] ${swipeAction.type}:${dir} (dx=${dx.toFixed(0)}, dy=${dy.toFixed(0)})`);
         }
-        onAction(swipeAction);
+        onActionRef.current(swipeAction);
         return;
       }
 
@@ -205,12 +211,12 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
         // Double tap
         if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
         lastTapRef.current = 0;
-        onAction({ type: 'double-tap' });
+        onActionRef.current({ type: 'double-tap' });
       } else {
         // Potential single tap — wait to see if double-tap follows
         lastTapRef.current = now;
         tapTimeoutRef.current = setTimeout(() => {
-          onAction({ type: 'tap' });
+          onActionRef.current({ type: 'tap' });
           lastTapRef.current = 0;
         }, config.doubleTapMaxDelayMs);
       }

@@ -23,8 +23,8 @@ export function PhraseSection({ onNavigateUp, onSave, onSpeak, onLongPress }: Ph
     switch (action.type) {
       case 'swipe':
         switch (action.direction) {
-          case 'up': onNavigateUp(); break;
-          case 'down': onSave(); break;
+          case 'down': onNavigateUp(); break;  // Swipe down = focus moves up to compose
+          case 'up': onSave(); break;           // Swipe up = focus moves down = save
           case 'right':
             undoSlot();
             addEvent({

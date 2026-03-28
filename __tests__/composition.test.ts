@@ -173,21 +173,27 @@ describe('CompositionStore — advance (double-tap)', () => {
   });
 });
 
-describe('CompositionStore — refine (right swipe)', () => {
-  it('pushes history with source=refine and replaces predictions', () => {
+describe('CompositionStore — refine (swipe-left on focused item)', () => {
+  it('swaps single item at target index and pushes history', () => {
     useCompositionStore.getState().setIntent('I need');
     useCompositionStore.getState().setPredictions(mockPredictions);
-    useCompositionStore.getState().refine('water', mockPredictions2);
-    const { slots, predictions, predictionHistory } = useCompositionStore.getState();
+    const replacement = { id: '3', text: 'cold', itemType: 'prediction' as const, rank: 0 };
+    const queue = [{ id: '4', text: 'hot', itemType: 'prediction' as const, rank: 1 }];
+    useCompositionStore.getState().refine(0, replacement, queue);
+    const { slots, predictions, predictionHistory, refinementQueue } = useCompositionStore.getState();
     expect(slots).toEqual([]); // refine does NOT add a slot
-    expect(predictions).toEqual(mockPredictions2);
+    // Only item at index 0 changed; index 1 preserved
+    expect(predictions[0].text).toBe('cold');
+    expect(predictions[1].text).toBe('help');
     expect(predictionHistory).toHaveLength(1);
     expect(predictionHistory[0].source).toBe('refine');
+    expect(refinementQueue).toEqual(queue);
   });
 
-  it('no-ops when new predictions are identical to current', () => {
+  it('no-ops when replacement text matches current item', () => {
     useCompositionStore.getState().setPredictions(mockPredictions);
-    useCompositionStore.getState().refine('water', mockPredictions);
+    // Refine index 0 ('water') with same text — should be a no-op
+    useCompositionStore.getState().refine(0, mockPredictions[0], []);
     const { predictionHistory } = useCompositionStore.getState();
     expect(predictionHistory).toHaveLength(0); // nothing pushed
   });
@@ -209,7 +215,8 @@ describe('CompositionStore — backtrack (left swipe with history)', () => {
     useCompositionStore.getState().setIntent('I need');
     useCompositionStore.getState().addSlot('water');
     useCompositionStore.getState().setPredictions(mockPredictions);
-    useCompositionStore.getState().refine('help', mockPredictions2);
+    const replacement = { id: '3', text: 'cold', itemType: 'prediction' as const, rank: 0 };
+    useCompositionStore.getState().refine(1, replacement, []);
     // Slot count should still be 1 after refine
     expect(useCompositionStore.getState().slots).toEqual(['water']);
     // Now backtrack — should restore predictions but NOT remove the slot
@@ -256,14 +263,15 @@ describe('CompositionStore — modifier cycling', () => {
     expect(modifierState).toEqual({ targetItem: 'coffee', modifiers: ['and', 'or', 'with'], currentIndex: 0 });
   });
 
-  it('cycleModifier advances to next modifier and loops', () => {
+  it('cycleModifier advances through all modifiers then clears', () => {
     useCompositionStore.getState().setModifiers('coffee', ['and', 'or', 'with']);
     useCompositionStore.getState().cycleModifier();
     expect(useCompositionStore.getState().modifierState!.currentIndex).toBe(1);
     useCompositionStore.getState().cycleModifier();
     expect(useCompositionStore.getState().modifierState!.currentIndex).toBe(2);
+    // After cycling through all modifiers, returns to no modifier (null)
     useCompositionStore.getState().cycleModifier();
-    expect(useCompositionStore.getState().modifierState!.currentIndex).toBe(0);
+    expect(useCompositionStore.getState().modifierState).toBeNull();
   });
 
   it('clearModifier resets modifier state to null', () => {
@@ -319,23 +327,20 @@ describe('CompositionStore — reset clears new fields', () => {
 // ─── REGRESSION TESTS ────────────────────────────────────────────────────────
 // These tests prevent bugs we spent 2 days fixing from coming back.
 
-describe('REGRESSION — refine() never blanks the prediction list', () => {
-  it('refine() with empty predictions array is a no-op', () => {
+describe('REGRESSION — refine() guards against bad input', () => {
+  it('refine() with out-of-bounds index is a no-op', () => {
     useCompositionStore.getState().setPredictions(mockPredictions);
-    useCompositionStore.getState().refine('water', []);
-    // Predictions must still be the original set — never blanked
+    const replacement = { id: '9', text: 'tea', itemType: 'prediction' as const, rank: 0 };
+    useCompositionStore.getState().refine(99, replacement, []);
+    // Predictions must still be the original set
     expect(useCompositionStore.getState().predictions).toEqual(mockPredictions);
-    // No history entry pushed either
     expect(useCompositionStore.getState().predictionHistory).toHaveLength(0);
   });
 
-  it('refine() with empty array does not push to predictionHistory', () => {
-    useCompositionStore.getState().setPredictions(mockPredictions);
-    useCompositionStore.getState().refine('water', []);
-    useCompositionStore.getState().refine('help', []);
-    // Multiple empty refines should all be no-ops
+  it('refine() on empty predictions list is a no-op', () => {
+    const replacement = { id: '9', text: 'tea', itemType: 'prediction' as const, rank: 0 };
+    useCompositionStore.getState().refine(0, replacement, []);
     expect(useCompositionStore.getState().predictionHistory).toHaveLength(0);
-    expect(useCompositionStore.getState().predictions).toEqual(mockPredictions);
   });
 });
 

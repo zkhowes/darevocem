@@ -29,7 +29,10 @@ interface CompositionStore {
   predictionHistory: PredictionHistoryEntry[];
   triedItems: string[];
   modifierState: ModifierState | null;
+  refinementQueue: ComposeItem[];
+  refinementQueueIndex: number | null;
 
+  isIntentEditable: () => boolean;
   setIntent: (intent: string) => void;
   incrementIntentCycleCount: () => void;
   addSlot: (text: string) => void;
@@ -47,7 +50,7 @@ interface CompositionStore {
   preloadPhraseMode: (text: string, source: PhraseSource) => void;
   switchToPredictMode: () => void;
   advance: (selectedText: string, nextPredictions: ComposeItem[]) => void;
-  refine: (targetItem: string, newPredictions: ComposeItem[]) => void;
+  refine: (targetIndex: number, replacement: ComposeItem, queue: ComposeItem[]) => void;
   backtrack: () => boolean;
   recordTriedItem: (item: string) => void;
   clearTriedItems: () => void;
@@ -74,6 +77,13 @@ export const useCompositionStore = create<CompositionStore>()(
       predictionHistory: [],
       triedItems: [],
       modifierState: null,
+      refinementQueue: [],
+      refinementQueueIndex: null,
+
+      // Intent is editable until a word has been added to the phrase.
+      // Once slots > 0, intent is locked to prevent breaking the sentence.
+      // User can swipe right on phrase bar to undo all slots, making intent editable again.
+      isIntentEditable: () => get().slots.length === 0,
 
       setIntent: (intent) => set({ intent, intentCycleCount: 0 }),
 
@@ -207,25 +217,30 @@ export const useCompositionStore = create<CompositionStore>()(
         predictions: nextPredictions,
         undoStack: [],
         modifierState: null,
+        refinementQueue: [],
+        refinementQueueIndex: null,
       })),
 
-      // Right swipe: push history for backtracking, replace predictions with similar alternatives.
-      // Does NOT add to phrase — the user is saying "close but not right."
-      // Skips the push if newPredictions are identical (e.g. fallback returned same list).
-      refine: (targetItem, newPredictions) => {
-        // Never replace predictions with nothing — user loses all options
-        if (newPredictions.length === 0) return;
+      // Swap a single prediction at targetIndex. Remaining alternatives are cached
+      // in refinementQueue so the next swipe-left on the same position is instant.
+      refine: (targetIndex, replacement, queue) => {
         const current = get().predictions;
-        const same = current.length === newPredictions.length &&
-          current.every((p, i) => p.text === newPredictions[i]?.text);
-        if (same) return; // No-op: nothing actually changed, don't pollute history
+        if (current.length === 0 || targetIndex >= current.length) return;
+        const oldItem = current[targetIndex];
+        if (oldItem.text === replacement.text) return;
+
+        const newPredictions = [...current];
+        newPredictions[targetIndex] = replacement;
+
         set((s) => ({
           predictionHistory: [...s.predictionHistory, {
             predictions: s.predictions,
-            slot: targetItem,
+            slot: oldItem.text,
             source: 'refine',
           }],
           predictions: newPredictions,
+          refinementQueue: queue,
+          refinementQueueIndex: targetIndex,
           modifierState: null,
         }));
       },
@@ -243,6 +258,8 @@ export const useCompositionStore = create<CompositionStore>()(
           slots: previous.source === 'advance' ? slots.slice(0, -1) : slots,
           predictionHistory: predictionHistory.slice(0, -1),
           modifierState: null,
+          refinementQueue: [],
+          refinementQueueIndex: null,
         });
         return true;
       },
@@ -260,16 +277,23 @@ export const useCompositionStore = create<CompositionStore>()(
         modifierState: { targetItem, modifiers, currentIndex: 0 },
       }),
 
-      // Advance to next modifier, wrapping around on overflow.
+      // Advance to next modifier. After cycling through all, return to no modifier.
+      // Next tap will start fresh from index 0 via setModifiers.
       cycleModifier: () => {
         const { modifierState } = get();
         if (!modifierState) return;
-        set({
-          modifierState: {
-            ...modifierState,
-            currentIndex: (modifierState.currentIndex + 1) % modifierState.modifiers.length,
-          },
-        });
+        const nextIndex = modifierState.currentIndex + 1;
+        if (nextIndex >= modifierState.modifiers.length) {
+          // Cycled through all modifiers — return to base word (no modifier)
+          set({ modifierState: null });
+        } else {
+          set({
+            modifierState: {
+              ...modifierState,
+              currentIndex: nextIndex,
+            },
+          });
+        }
       },
 
       clearModifier: () => set({ modifierState: null }),
@@ -296,6 +320,8 @@ export const useCompositionStore = create<CompositionStore>()(
         predictionHistory: [],
         triedItems: [],
         modifierState: null,
+        refinementQueue: [],
+        refinementQueueIndex: null,
       }),
     }),
     {

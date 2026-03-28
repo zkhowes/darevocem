@@ -18,6 +18,8 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
     dateOfBirth: (row.date_of_birth as string) ?? null,
     phone: (row.phone as string) ?? null,
     homeAddress: (row.home_address as string) ?? null,
+    emergencyContact: (row.emergency_contact as string) ?? null,
+    emergencyPhone: (row.emergency_phone as string) ?? null,
     onboardingComplete: (row.onboarding_complete as boolean) ?? false,
   };
 }

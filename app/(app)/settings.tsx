@@ -12,16 +12,18 @@ function ProfileCard() {
   const profile = useAuthStore((s) => s.profile);
   if (!profile) return null;
   const name = [profile.firstName, profile.lastName].filter(Boolean).join(' ') || profile.displayName || 'User';
+  const router = useRouter();
   return (
-    <View style={styles.profileCard}>
+    <Pressable style={styles.profileCard} onPress={() => router.push('/(app)/profile' as never)}>
       <View style={styles.profileAvatar}>
         <Text style={styles.profileInitial}>{name[0]?.toUpperCase() ?? '?'}</Text>
       </View>
       <View style={styles.profileInfo}>
         <Text style={styles.profileName}>{name}</Text>
         {profile.dateOfBirth && <Text style={styles.profileDetail}>DOB: {profile.dateOfBirth}</Text>}
+        <Text style={styles.profileEditHint}>Tap to edit profile</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -34,6 +36,8 @@ export default function SettingsScreen() {
     speechRate, setSpeechRate,
     useSystemTtsOnly, setUseSystemTtsOnly,
     showFallbackButtons, setShowFallbackButtons,
+    auditoryPreview, setAuditoryPreview,
+    displayDensity, setDisplayDensity,
   } = usePreferencesStore();
 
   return (
@@ -95,6 +99,21 @@ export default function SettingsScreen() {
             <Switch value={showFallbackButtons} onValueChange={setShowFallbackButtons} />
           </View>
 
+          {/* Auditory preview: speaks items aloud as user swipes through them */}
+          <View style={styles.row}>
+            <Text style={styles.label}>Read items aloud</Text>
+            <Switch value={auditoryPreview} onValueChange={setAuditoryPreview} />
+          </View>
+
+          {/* Simplified mode: fewer items, bigger targets for bad days */}
+          <View style={styles.row}>
+            <Text style={styles.label}>Simplified mode</Text>
+            <Switch
+              value={displayDensity === 'simplified'}
+              onValueChange={(v) => setDisplayDensity(v ? 'simplified' : 'standard')}
+            />
+          </View>
+
           <Pressable style={styles.signOut} onPress={signOut}>
             <Text style={styles.signOutText}>Sign out</Text>
           </Pressable>
@@ -143,4 +162,5 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1 },
   profileName: { fontSize: 20, fontWeight: '600', color: '#1A1A1A' },
   profileDetail: { fontSize: 14, color: '#6B6B6B', marginTop: 2 },
+  profileEditHint: { fontSize: 13, color: '#2B7A78', marginTop: 4 },
 });

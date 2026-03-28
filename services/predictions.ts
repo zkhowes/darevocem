@@ -7,6 +7,7 @@ declare const __DEV__: boolean;
 
 interface RawPrediction {
   text: string;
+  wordType?: string;
 }
 
 interface EdgePredictionResponse {
@@ -108,6 +109,7 @@ export async function getPredictions(
       text: p.text,
       itemType: 'prediction' as const,
       rank: i,
+      ...(p.wordType ? { wordType: p.wordType as import('../types').WordType } : {}),
     }));
   } catch (err) {
     if (__DEV__) console.log('[Predict] error:', err);
@@ -157,6 +159,34 @@ function fallbackCommonPhrases(timeOfDay: TimeOfDay): ComposeItem[] {
     itemType: 'common' as const,
     rank: i,
   }));
+}
+
+/**
+ * Fetches alternative intents using AI prediction.
+ * Given the current intent, asks Claude for semantically related alternatives.
+ * Falls back to cycling through the curated INTENTS list.
+ */
+export async function getAlternativeIntent(
+  currentIntent: string,
+  triedIntents: string[],
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('predict', {
+      body: {
+        fullPhrase: currentIntent,
+        requestType: 'intent_alternative',
+        triedItems: triedIntents,
+      },
+    });
+
+    if (error || !data || !data.intent) {
+      return null;
+    }
+
+    return data.intent as string;
+  } catch {
+    return null;
+  }
 }
 
 /**

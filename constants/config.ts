@@ -40,6 +40,17 @@ export const TYPOGRAPHY = {
   navBar: { size: 18, weight: '400' as const },
 } as const;
 
+// Simplified mode overrides — bigger targets, fewer items for bad days.
+// Same layout structure, just more generous sizing.
+export const SIMPLIFIED = {
+  wheelPickerFocusedHeight: 140,
+  wheelPickerItemHeight: 96,
+  wheelPickerFocusedFontSize: 36,
+  wheelPickerItemFontSize: 26,
+  maxPredictions: 3,
+  maxIntents: 4,
+} as const;
+
 export const OFFLINE = {
   maxQueueSize: 500,
   recentSelectionsCache: 20,

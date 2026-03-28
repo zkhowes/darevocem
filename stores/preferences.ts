@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../services/supabase';
-import type { Preferences, ThemeMode } from '../types';
+import type { Preferences, ThemeMode, DisplayDensity } from '../types';
 
 const DEFAULTS: Preferences = {
   theme: 'light',
@@ -11,6 +11,8 @@ const DEFAULTS: Preferences = {
   useSystemTtsOnly: false,
   showFallbackButtons: false,
   gestureConfig: {},
+  auditoryPreview: true,    // ON by default — core accessibility feature
+  displayDensity: 'standard',
 };
 
 interface PreferencesStore extends Preferences {
@@ -19,6 +21,8 @@ interface PreferencesStore extends Preferences {
   setSpeechRate: (rate: number) => void;
   setUseSystemTtsOnly: (value: boolean) => void;
   setShowFallbackButtons: (value: boolean) => void;
+  setAuditoryPreview: (value: boolean) => void;
+  setDisplayDensity: (value: DisplayDensity) => void;
   syncFromSupabase: () => Promise<void>;
   syncToSupabase: () => Promise<void>;
 }
@@ -33,6 +37,8 @@ export const usePreferencesStore = create<PreferencesStore>()(
       setSpeechRate: (speechRate) => { set({ speechRate }); get().syncToSupabase(); },
       setUseSystemTtsOnly: (useSystemTtsOnly) => { set({ useSystemTtsOnly }); get().syncToSupabase(); },
       setShowFallbackButtons: (showFallbackButtons) => { set({ showFallbackButtons }); get().syncToSupabase(); },
+      setAuditoryPreview: (auditoryPreview) => { set({ auditoryPreview }); get().syncToSupabase(); },
+      setDisplayDensity: (displayDensity) => { set({ displayDensity }); get().syncToSupabase(); },
 
       syncFromSupabase: async () => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -50,6 +56,8 @@ export const usePreferencesStore = create<PreferencesStore>()(
             useSystemTtsOnly: data.use_system_tts_only ?? DEFAULTS.useSystemTtsOnly,
             showFallbackButtons: data.show_fallback_buttons ?? DEFAULTS.showFallbackButtons,
             gestureConfig: data.gesture_config ?? DEFAULTS.gestureConfig,
+            auditoryPreview: data.auditory_preview ?? DEFAULTS.auditoryPreview,
+            displayDensity: data.display_density ?? DEFAULTS.displayDensity,
           });
         }
       },
@@ -66,6 +74,8 @@ export const usePreferencesStore = create<PreferencesStore>()(
           use_system_tts_only: state.useSystemTtsOnly,
           show_fallback_buttons: state.showFallbackButtons,
           gesture_config: state.gestureConfig,
+          auditory_preview: state.auditoryPreview,
+          display_density: state.displayDensity,
           updated_at: new Date().toISOString(),
         });
       },
