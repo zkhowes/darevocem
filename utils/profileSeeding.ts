@@ -1,10 +1,14 @@
 /**
- * Builds saved phrases and common items from profile data.
+ * Builds saved phrases from profile data.
  * Shared between onboarding (initial seed) and profile editing (update).
  *
- * Saved phrases use variable format: "Label = Value"
- * When displayed, the label shows above the value.
- * When spoken (double-tap), only the value is spoken.
+ * Variable phrases use label + value columns:
+ * - Display shows label above value (e.g. "Name" above "Amanda")
+ * - Auditory preview reads the label only ("Name")
+ * - Selection inserts the value only ("Amanda")
+ * - text column stores the value for backward compat / full-text search
+ *
+ * Non-variable phrases use text only (label and value stay NULL).
  */
 
 export interface ProfileData {
@@ -22,15 +26,8 @@ interface SavedPhraseRow {
   text: string;
   category: string;
   sort_order: number;
-}
-
-interface CommonItemRow {
-  user_id: string;
-  label: string;
-  value: string;
-  category: string;
-  is_dynamic: boolean;
-  sort_order: number;
+  label?: string;
+  value?: string;
 }
 
 /** Format today's date as spoken text, e.g. "March 27 2026" */
@@ -45,193 +42,111 @@ export function formatTodaySpoken(): string {
 
 /**
  * Build saved phrases from profile data.
- * - Personal phrases in "Label = Value" variable format
- * - Dynamic "Today" phrase
- * - Aphasia intro phrase
- * - Hospital check-in / self-advocacy phrases
+ * Only seeds:
+ * - Profile-sourced variables (Name, DOB, Phone, Address, Emergency Contact/Phone, Today)
+ * - One aphasia intro phrase
  */
 export function buildSavedPhrasesFromProfile(
   userId: string,
   data: ProfileData,
 ): SavedPhraseRow[] {
   const phrases: SavedPhraseRow[] = [];
-  let personalOrder = 0;
+  let order = 0;
 
-  // Dynamic today phrase — resolved at display time, but seeded with current date
+  // Dynamic today phrase — resolved at display time
+  const todayValue = formatTodaySpoken();
   phrases.push({
     user_id: userId,
-    text: `Today = ${formatTodaySpoken()}`,
+    text: todayValue,
+    label: 'Today',
+    value: todayValue,
     category: 'Personal',
-    sort_order: personalOrder++,
+    sort_order: order++,
   });
 
-  // Profile-sourced personal phrases (variable format)
+  // Profile-sourced variable phrases
   const fullName = [data.firstName, data.lastName].filter(Boolean).join(' ');
   if (fullName) {
     phrases.push({
       user_id: userId,
-      text: `Name = ${fullName}`,
+      text: fullName,
+      label: 'Name',
+      value: fullName,
       category: 'Personal',
-      sort_order: personalOrder++,
+      sort_order: order++,
     });
   }
 
   if (data.dateOfBirth) {
     phrases.push({
       user_id: userId,
-      text: `Date of Birth = ${data.dateOfBirth}`,
+      text: data.dateOfBirth,
+      label: 'Date of Birth',
+      value: data.dateOfBirth,
       category: 'Personal',
-      sort_order: personalOrder++,
+      sort_order: order++,
     });
   }
 
   if (data.phone) {
     phrases.push({
       user_id: userId,
-      text: `Phone = ${data.phone}`,
+      text: data.phone,
+      label: 'Phone',
+      value: data.phone,
       category: 'Personal',
-      sort_order: personalOrder++,
+      sort_order: order++,
     });
   }
 
   if (data.homeAddress) {
     phrases.push({
       user_id: userId,
-      text: `Address = ${data.homeAddress}`,
+      text: data.homeAddress,
+      label: 'Address',
+      value: data.homeAddress,
       category: 'Personal',
-      sort_order: personalOrder++,
+      sort_order: order++,
     });
   }
 
   if (data.emergencyContact) {
     phrases.push({
       user_id: userId,
-      text: `Emergency Contact = ${data.emergencyContact}`,
+      text: data.emergencyContact,
+      label: 'Emergency Contact',
+      value: data.emergencyContact,
       category: 'Personal',
-      sort_order: personalOrder++,
+      sort_order: order++,
     });
   }
 
   if (data.emergencyPhone) {
     phrases.push({
       user_id: userId,
-      text: `Emergency Phone = ${data.emergencyPhone}`,
+      text: data.emergencyPhone,
+      label: 'Emergency Phone',
+      value: data.emergencyPhone,
       category: 'Personal',
-      sort_order: personalOrder++,
+      sort_order: order++,
     });
   }
 
-  // Aphasia self-introduction — always seeded
+  // Aphasia intro — a full phrase, not a variable
   const nameIntro = fullName ? `My name is ${fullName} and I` : 'I';
   phrases.push({
     user_id: userId,
-    text: `${nameIntro} have Aphasia. I understand everything you say but have trouble finding words. Please be patient with me.`,
-    category: 'Introductions',
-    sort_order: 0,
-  });
-
-  // Hospital check-in and self-advocacy phrases
-  const checkInPhrases = [
-    'I have an appointment',
-    'I am here for a follow-up',
-    'I am here for lab work',
-    'I am here for imaging',
-    'I need someone to help me fill out forms',
-    'I have a brain tumor and have trouble speaking',
-    'I can understand you perfectly',
-  ];
-  checkInPhrases.forEach((text, i) => {
-    phrases.push({
-      user_id: userId,
-      text,
-      category: 'Medical',
-      sort_order: 10 + i, // after the default medical phrases
-    });
+    text: `${nameIntro} have Aphasia. I understand everything but have trouble finding words. Please be patient with me.`,
+    category: 'Personal',
+    sort_order: order++,
   });
 
   return phrases;
 }
 
-/** Build common items from profile data (for the Common screen) */
-export function buildCommonItemsFromProfile(
-  userId: string,
-  data: ProfileData,
-): CommonItemRow[] {
-  const items: CommonItemRow[] = [];
-
-  const fullName = [data.firstName, data.lastName].filter(Boolean).join(' ');
-  if (fullName) {
-    items.push({
-      user_id: userId,
-      label: 'My name',
-      value: fullName,
-      category: 'Names',
-      is_dynamic: false,
-      sort_order: 0,
-    });
-  }
-
-  if (data.dateOfBirth) {
-    items.push({
-      user_id: userId,
-      label: 'DOB',
-      value: data.dateOfBirth,
-      category: 'Dates',
-      is_dynamic: false,
-      sort_order: 0,
-    });
-  }
-
-  if (data.phone) {
-    items.push({
-      user_id: userId,
-      label: 'My phone',
-      value: data.phone,
-      category: 'Names',
-      is_dynamic: false,
-      sort_order: 1,
-    });
-  }
-
-  if (data.homeAddress) {
-    items.push({
-      user_id: userId,
-      label: 'My address',
-      value: data.homeAddress,
-      category: 'Places',
-      is_dynamic: false,
-      sort_order: 0,
-    });
-  }
-
-  if (data.emergencyContact) {
-    items.push({
-      user_id: userId,
-      label: 'Emergency contact',
-      value: data.emergencyContact,
-      category: 'Names',
-      is_dynamic: false,
-      sort_order: 2,
-    });
-  }
-
-  if (data.emergencyPhone) {
-    items.push({
-      user_id: userId,
-      label: 'Emergency phone',
-      value: data.emergencyPhone,
-      category: 'Names',
-      is_dynamic: false,
-      sort_order: 3,
-    });
-  }
-
-  return items;
-}
-
 /**
  * Labels for profile-sourced saved phrases.
- * Used by the profile editor to find and update existing phrases.
+ * Used by the profile editor to find and delete existing variable phrases.
  */
 export const PROFILE_PHRASE_LABELS = [
   'Name',

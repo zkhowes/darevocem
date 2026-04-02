@@ -183,6 +183,8 @@ export interface SavedPhrase {
   text: string;
   category: string;
   sort_order: number;
+  label?: string | null;
+  value?: string | null;
 }
 
 // === Preferences ===
@@ -216,6 +218,30 @@ export interface UserProfile {
   emergencyContact: string | null;
   emergencyPhone: string | null;
   onboardingComplete: boolean;
+}
+
+// === Audio Cache ===
+
+export interface AudioCacheEntry {
+  /** The phrase text this audio was generated for */
+  text: string;
+  /** Base64-encoded audio/mpeg data */
+  audioBase64: string;
+  /** When this entry was cached (ms since epoch) */
+  cachedAt: number;
+}
+
+// === Voice Transcription ===
+
+export interface TranscriptionResult {
+  /** The stable sentence beginning extracted from speech (e.g., "I need") */
+  intent: string | null;
+  /** Descriptive clues about what the user is looking for (e.g., ["thing", "red"]) */
+  descriptors: string[];
+  /** How confident the extraction is, based on repetition and clarity */
+  confidence: 'high' | 'medium' | 'low';
+  /** Raw transcript from Whisper before NLP extraction */
+  rawTranscript: string;
 }
 
 // === API Responses ===

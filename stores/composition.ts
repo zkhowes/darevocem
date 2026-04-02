@@ -32,6 +32,9 @@ interface CompositionStore {
   refinementQueue: ComposeItem[];
   refinementQueueIndex: number | null;
 
+  // Voice input state — descriptors extracted from speech on compose screen
+  voiceDescriptors: string[];
+
   isIntentEditable: () => boolean;
   setIntent: (intent: string) => void;
   incrementIntentCycleCount: () => void;
@@ -58,6 +61,8 @@ interface CompositionStore {
   cycleModifier: () => void;
   clearModifier: () => void;
   getModifierDisplayText: () => string | null;
+  setVoiceDescriptors: (descriptors: string[]) => void;
+  clearVoiceDescriptors: () => void;
 }
 
 export const useCompositionStore = create<CompositionStore>()(
@@ -79,6 +84,7 @@ export const useCompositionStore = create<CompositionStore>()(
       modifierState: null,
       refinementQueue: [],
       refinementQueueIndex: null,
+      voiceDescriptors: [],
 
       // Intent is editable until a word has been added to the phrase.
       // Once slots > 0, intent is locked to prevent breaking the sentence.
@@ -143,6 +149,7 @@ export const useCompositionStore = create<CompositionStore>()(
         modifierState: null,
         composeMode: 'predict' as ComposeMode,
         phraseSource: null,
+        voiceDescriptors: [],
       }),
 
       // Preload a saved phrase as a single complete slot (no intent, ready to speak).
@@ -298,6 +305,11 @@ export const useCompositionStore = create<CompositionStore>()(
 
       clearModifier: () => set({ modifierState: null }),
 
+      setVoiceDescriptors: (descriptors) => set({ voiceDescriptors: descriptors }),
+
+      // Clear voice descriptors — called alongside clearTriedItems on new word selection
+      clearVoiceDescriptors: () => set({ voiceDescriptors: [] }),
+
       // Returns the display string for the current modifier state (e.g. "coffee and").
       getModifierDisplayText: () => {
         const { modifierState } = get();
@@ -322,6 +334,7 @@ export const useCompositionStore = create<CompositionStore>()(
         modifierState: null,
         refinementQueue: [],
         refinementQueueIndex: null,
+        voiceDescriptors: [],
       }),
     }),
     {

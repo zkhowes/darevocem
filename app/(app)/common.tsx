@@ -1,77 +1,82 @@
 import React, { useEffect, useState } from 'react';
-import { Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SectionLayout } from '../../components/sections/SectionLayout';
-import { CategoryHeader } from '../../components/sections/CategoryHeader';
 import { GestureArea } from '../../components/gestures/GestureArea';
 import { FocusIndicator } from '../../components/shared/FocusIndicator';
 import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
-import { supabase } from '../../services/supabase';
-import type { GestureAction, CommonItem } from '../../types';
+import { usePreferencesStore } from '../../stores/preferences';
+import { speakPreview, cancelPreview } from '../../services/auditoryPreview';
+import { getCommonPhrases } from '../../services/predictions';
+import { getTimeOfDay } from '../../services/context';
+import type { GestureAction, ComposeItem } from '../../types';
 import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
 
-const CATEGORIES = ['Dates', 'Names', 'Medications', 'Places'];
+const TIME_LABELS = {
+  morning: 'Good Morning',
+  afternoon: 'Good Afternoon',
+  evening: 'Good Evening',
+  night: 'Good Night',
+} as const;
 
 export default function CommonScreen() {
   const router = useRouter();
-  const [category, setCategory] = useState(CATEGORIES[0]);
-  const [items, setItems] = useState<CommonItem[]>([]);
-  const addSlot = useCompositionStore((s) => s.addSlot);
+  const [phrases, setPhrases] = useState<ComposeItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const composeIndex = useFocusStore((s) => s.composeIndex);
   const section = useFocusStore((s) => s.section);
   const moveDown = useFocusStore((s) => s.moveDown);
-  const moveUp = useFocusStore((s) => s.moveUp);
   const setSection = useFocusStore((s) => s.setSection);
   const focusReset = useFocusStore((s) => s.reset);
+  const auditoryPreview = usePreferencesStore((s) => s.auditoryPreview);
 
-  // Reset focus and clear any stale composition state (intent from prior session)
+  const timeOfDay = getTimeOfDay();
+
   useEffect(() => {
     useCompositionStore.getState().reset();
     focusReset();
-  }, []);
 
-  useEffect(() => {
-    async function fetchItems() {
-      const { data } = await supabase
-        .from('common_items')
-        .select('*')
-        .ilike('category', category)
-        .order('sort_order');
-      if (data) {
-        // Resolve dynamic items: [Today] becomes the actual current date
-        const resolved = data.map((item: CommonItem) => {
-          if (item.is_dynamic && item.label === '[Today]') {
-            return { ...item, value: new Date().toLocaleDateString() };
-          }
-          return item;
-        });
-        setItems(resolved);
-        useFocusStore.getState().setComposeListSize(resolved.length);
+    async function load() {
+      setLoading(true);
+      try {
+        const items = await getCommonPhrases(timeOfDay);
+        setPhrases(items);
+        useFocusStore.getState().setComposeListSize(items.length);
+      } finally {
+        setLoading(false);
       }
     }
-    fetchItems();
-  }, [category]);
+    load();
+  }, []);
 
-  const handleItemAction = (action: GestureAction, item: CommonItem, index: number) => {
-    // Only handle gestures when the compose section is focused
+  const handleItemAction = (action: GestureAction, phrase: ComposeItem, index: number) => {
     if (section !== 'compose') return;
     switch (action.type) {
       case 'swipe':
         switch (action.direction) {
           case 'down': moveDown(); break;
-          case 'up': moveUp(); break;
           default: break;
         }
         break;
-      case 'double-tap':
-        // Double-tap adds the item's display value to the composed phrase
-        addSlot(item.value);
+      case 'tap':
+        useFocusStore.getState().setComposeIndex(index);
+        if (auditoryPreview) {
+          speakPreview(phrase.text.split(' ').slice(0, 4).join(' '));
+        }
         break;
+      case 'double-tap': {
+        cancelPreview();
+        // Preload the full phrase and navigate to compose
+        const store = useCompositionStore.getState();
+        store.preloadPhraseMode(phrase.text, 'common');
+        router.push({ pathname: '/(app)/compose', params: { type: 'common', value: phrase.text } } as never);
+        break;
+      }
     }
   };
 
-  const renderItem = ({ item, index }: { item: CommonItem; index: number }) => (
+  const renderItem = ({ item, index }: { item: ComposeItem; index: number }) => (
     <GestureArea
       onAction={(action) => handleItemAction(action, item, index)}
       style={{ marginBottom: LAYOUT.itemGap }}
@@ -81,8 +86,7 @@ export default function CommonScreen() {
         isTopPrediction={index === 0}
         style={styles.item}
       >
-        <Text style={styles.itemLabel}>{item.label}</Text>
-        <Text style={styles.itemValue}>{item.value}</Text>
+        <Text style={styles.itemText} numberOfLines={3}>{item.text}</Text>
       </FocusIndicator>
     </GestureArea>
   );
@@ -90,20 +94,31 @@ export default function CommonScreen() {
   return (
     <SectionLayout
       headerContent={
-        <CategoryHeader
-          categories={CATEGORIES}
-          onCategoryChange={setCategory}
-          onNavigateHome={() => router.back()}
-          onFocusDown={() => setSection('compose', 0)}
-        />
+        <View style={styles.header}>
+          <View style={styles.headerRow}>
+            <View>
+              <Text style={styles.headerLabel}>Common Phrases</Text>
+              <Text style={styles.headerTime}>{TIME_LABELS[timeOfDay]}</Text>
+            </View>
+            <Pressable style={styles.closeButton} onPress={() => router.back()}>
+              <Text style={styles.closeText}>X</Text>
+            </Pressable>
+          </View>
+        </View>
       }
       itemsContent={
-        <FlatList
-          data={items}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          scrollEnabled={false}
-        />
+        loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#E07B2E" />
+          </View>
+        ) : (
+          <FlatList
+            data={phrases}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            scrollEnabled={false}
+          />
+        )
       }
       onPhraseSave={() => {}}
       onPhraseNavigateUp={() => setSection('compose')}
@@ -112,17 +127,55 @@ export default function CommonScreen() {
 }
 
 const styles = StyleSheet.create({
+  header: {
+    paddingHorizontal: LAYOUT.screenPadding,
+    paddingVertical: 16,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E5E5E0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A1A',
+  },
+  headerLabel: {
+    fontSize: TYPOGRAPHY.itemLabel.size,
+    color: '#6B6B6B',
+  },
+  headerTime: {
+    fontSize: TYPOGRAPHY.phraseBar.size,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    marginTop: 4,
+  },
   item: {
     minHeight: LAYOUT.listItemHeight,
     backgroundColor: '#FFFFFF',
     borderRadius: 8,
     justifyContent: 'center',
     paddingHorizontal: LAYOUT.screenPadding,
+    paddingVertical: 12,
   },
-  itemLabel: { fontSize: TYPOGRAPHY.itemLabel.size, color: '#6B6B6B' },
-  itemValue: {
+  itemText: {
     fontSize: TYPOGRAPHY.listItem.size,
     fontWeight: TYPOGRAPHY.listItem.weight,
     color: '#1A1A1A',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
   },
 });

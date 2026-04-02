@@ -7,6 +7,8 @@ interface ContextMenuProps {
   onClose: () => void;
   onKeyboard: () => void;
   onSave: () => void;
+  onMic?: () => void;
+  onCamera?: () => void;
   variant?: 'default' | 'phrase';
   onSpeakImperfect?: () => void;
 }
@@ -16,6 +18,8 @@ export function ContextMenu({
   onClose,
   onKeyboard,
   onSave,
+  onMic,
+  onCamera,
   variant = 'default',
   onSpeakImperfect,
 }: ContextMenuProps) {
@@ -26,8 +30,8 @@ export function ContextMenu({
       ]
     : [
         { label: 'Keyboard', onPress: onKeyboard },
-        { label: 'Camera', onPress: () => {} },
-        { label: 'Microphone', onPress: () => {} },
+        { label: 'Camera', onPress: onCamera },
+        { label: 'Microphone', onPress: onMic },
         { label: 'Save', onPress: onSave },
       ];
 

@@ -48,11 +48,27 @@ export default function ProfileScreen() {
   // Parse existing DOB for the date picker's initial value
   const datePickerValue = parseDateString(dateOfBirth) ?? new Date(1981, 11, 29);
 
+  // Track the picker's working date separately so we only commit on "Done"
+  const [pickerDate, setPickerDate] = useState(datePickerValue);
+
   const handleDateChange = (_event: unknown, selectedDate?: Date) => {
-    setShowDatePicker(Platform.OS === 'ios'); // iOS keeps picker open
-    if (selectedDate) {
-      setDateOfBirth(formatDateSpoken(selectedDate));
+    if (Platform.OS === 'android') {
+      // Android fires once and closes automatically
+      setShowDatePicker(false);
+      if (selectedDate) {
+        setDateOfBirth(formatDateSpoken(selectedDate));
+      }
+    } else {
+      // iOS: update the working date, but don't dismiss yet (Done button does that)
+      if (selectedDate) {
+        setPickerDate(selectedDate);
+      }
     }
+  };
+
+  const handleDateDone = () => {
+    setDateOfBirth(formatDateSpoken(pickerDate));
+    setShowDatePicker(false);
   };
 
   const handleSave = async () => {
@@ -101,29 +117,16 @@ export default function ProfileScreen() {
 
       if (profileError) throw profileError;
 
-      // Delete old profile-sourced phrases and re-seed
-      // Delete Personal category phrases
-      const delPersonal = await supabase
+      // Fresh start: delete ALL user's saved phrases, then re-seed from profile
+      const { error: delError } = await supabase
         .from('saved_phrases')
         .delete()
-        .eq('user_id', userId)
-        .ilike('category', 'personal');
-      if (delPersonal.error) {
-        console.warn('Failed to delete Personal phrases:', delPersonal.error.message);
+        .eq('user_id', userId);
+      if (delError) {
+        console.warn('Failed to delete saved phrases:', delError.message);
       }
 
-      // Delete old aphasia intro phrase so we re-seed with updated name
-      const delIntro = await supabase
-        .from('saved_phrases')
-        .delete()
-        .eq('user_id', userId)
-        .eq('category', 'Introductions')
-        .like('text', '%Aphasia%');
-      if (delIntro.error) {
-        console.warn('Failed to delete intro phrase:', delIntro.error.message);
-      }
-
-      // Re-seed with current profile data
+      // Re-seed with current profile data (variables + aphasia intro only)
       const { buildSavedPhrasesFromProfile } = await import('../../utils/profileSeeding');
       const profileData = {
         firstName: firstName.trim(),
@@ -144,23 +147,6 @@ export default function ProfileScreen() {
           console.warn('Failed to insert phrases:', phraseError.message);
           throw phraseError;
         }
-      }
-
-      // Update common items — delete profile-sourced ones and re-seed
-      const knownLabels = ['My name', 'DOB', 'My phone', 'My address', 'Emergency contact', 'Emergency phone'];
-      await supabase
-        .from('common_items')
-        .delete()
-        .eq('user_id', userId)
-        .in('label', knownLabels);
-
-      const { buildCommonItemsFromProfile } = await import('../../utils/profileSeeding');
-      const newCommonItems = buildCommonItemsFromProfile(userId, profileData);
-
-      if (newCommonItems.length > 0) {
-        await supabase
-          .from('common_items')
-          .insert(newCommonItems);
       }
 
       // Refresh auth store with updated profile
@@ -248,13 +234,20 @@ export default function ProfileScreen() {
               </Text>
             </Pressable>
             {showDatePicker && (
-              <DateTimePicker
-                value={datePickerValue}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={handleDateChange}
-                maximumDate={new Date()}
-              />
+              <>
+                <DateTimePicker
+                  value={pickerDate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={handleDateChange}
+                  maximumDate={new Date()}
+                />
+                {Platform.OS === 'ios' && (
+                  <Pressable style={styles.datePickerDone} onPress={handleDateDone}>
+                    <Text style={styles.datePickerDoneText}>Done</Text>
+                  </Pressable>
+                )}
+              </>
             )}
           </View>
 
@@ -352,5 +345,16 @@ const styles = StyleSheet.create({
   placeholderText: {
     fontSize: 18,
     color: '#A0A0A0',
+  },
+  datePickerDone: {
+    alignSelf: 'flex-end',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  datePickerDoneText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#E07B2E',
   },
 });

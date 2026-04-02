@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../stores/auth';
 import { supabase } from '../services/supabase';
 import { LAYOUT } from '../constants/config';
-import { buildSavedPhrasesFromProfile, buildCommonItemsFromProfile } from '../utils/profileSeeding';
+import { buildSavedPhrasesFromProfile } from '../utils/profileSeeding';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -71,7 +71,7 @@ export default function OnboardingScreen() {
       }
       if (result.error) throw result.error;
 
-      // Seed saved phrases from profile data (variable format: "Label = Value")
+      // Seed saved phrases from profile data (label + value columns)
       const profileData = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -89,16 +89,6 @@ export default function OnboardingScreen() {
           .from('saved_phrases')
           .insert(savedPhrases);
         if (phraseError) throw phraseError;
-      }
-
-      // Seed common_items from profile data
-      const commonItems = buildCommonItemsFromProfile(userId, profileData);
-
-      if (commonItems.length > 0) {
-        const { error: commonError } = await supabase
-          .from('common_items')
-          .insert(commonItems);
-        if (commonError) throw commonError;
       }
 
       // Refresh profile in auth store

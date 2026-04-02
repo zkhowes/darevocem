@@ -92,6 +92,11 @@ export async function getPredictions(
       console.log(`[Predict] next "${fullPhrase}" → ${data?.predictions?.length ?? 0} results (${elapsed}ms, fallback=${data?.fallback ?? 'error'})`);
       if (error) console.log('[Predict] INVOKE ERROR:', error?.message ?? error);
       if (data?.claudeError) console.log('[Predict] CLAUDE ERROR:', data.claudeError);
+      // Log wordType presence for Fitzgerald color debugging
+      if (data?.predictions?.length > 0) {
+        const sample = data.predictions[0];
+        console.log(`[Predict] sample prediction: ${JSON.stringify(sample)}`);
+      }
       if (data?.debug) console.log('[Predict] debug:', JSON.stringify(data.debug, null, 2));
     }
 

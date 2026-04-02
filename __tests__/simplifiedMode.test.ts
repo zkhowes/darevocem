@@ -40,7 +40,7 @@ describe('Simplified mode — item limiting', () => {
   ];
 
   it('standard mode shows all items', () => {
-    const density = 'standard';
+    const density: string = 'standard';
     const visible = density === 'simplified'
       ? mockPredictions.slice(0, SIMPLIFIED.maxPredictions)
       : mockPredictions;

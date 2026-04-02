@@ -10,7 +10,21 @@
       "supportsTablet": false
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Dare Vocem needs microphone access to hear what you want to say and help you complete your sentences."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Dare Vocem needs microphone access to hear what you want to say and help you complete your sentences.",
+          "speechRecognitionPermission": "Dare Vocem uses speech recognition to show your words in real-time as you speak.",
+          "androidSpeechServicePackages": []
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

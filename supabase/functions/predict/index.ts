@@ -27,7 +27,17 @@ Rules:
 - Be warm, practical, conversational. This is casual speech, not formal writing.
 - If the sentence feels complete, suggest ending words: "please", "now", "today", or return fewer predictions.
 
-JSON format: {"predictions": [{"text": "coffee"}, {"text": "water"}, {"text": "help"}, {"text": "rest"}, {"text": "to go outside"}]}`;
+For each prediction, include a "wordType" field with one of: "verb", "noun", "descriptor", "person", "question", "negation", "social", "misc".
+- verb: actions (go, want, eat, help)
+- noun: things (water, coffee, phone, bathroom)
+- descriptor: adjectives (tired, cold, happy, more)
+- person: people (you, someone, my daughter)
+- question: question words (what, where, when)
+- negation: negative (no, don't, stop, never)
+- social: social words (please, thank you, hello)
+- misc: everything else (and, the, but, now)
+
+JSON format: {"predictions": [{"text": "coffee", "wordType": "noun"}, {"text": "to go", "wordType": "verb"}, {"text": "help", "wordType": "verb"}, {"text": "tired", "wordType": "descriptor"}, {"text": "someone", "wordType": "person"}]}`;
 
 const REFINE_SYSTEM_PROMPT = `You help a person with aphasia complete sentences. They saw a word suggestion and indicated it's close but not what they want. You suggest alternatives in the same semantic neighborhood.
 
@@ -39,7 +49,9 @@ Rules:
 - Do NOT repeat the rejected word, any already-rejected words, or any words already visible on screen.
 - Predictions must be grammatically correct continuations of the sentence.
 
-JSON format: {"predictions": [{"text": "tea"}, {"text": "espresso"}, {"text": "hot chocolate"}]}`;
+For each prediction, include a "wordType" field: "verb", "noun", "descriptor", "person", "question", "negation", "social", or "misc".
+
+JSON format: {"predictions": [{"text": "tea", "wordType": "noun"}, {"text": "espresso", "wordType": "noun"}, {"text": "hot chocolate", "wordType": "noun"}]}`;
 
 const COMMON_PHRASES_PROMPT = `You generate common phrases a person with aphasia might want to say at a given time of day. These should be complete, natural sentences — the kind of things someone says regularly in daily life.
 
@@ -215,7 +227,7 @@ Also avoid these (already on screen or previously rejected): ${avoidList.join(',
 
 Suggest 5 alternatives related to "${targetItem}" that naturally continue this sentence.`;
 
-      const result = await callClaude(REFINE_SYSTEM_PROMPT, userMessage, 200, 0.8, 4000);
+      const result = await callClaude(REFINE_SYSTEM_PROMPT, userMessage, 400, 0.8, 4000);
       if (result.error) {
         return jsonResponse({ predictions: [], fallback: true, claudeError: result.error });
       }
@@ -229,6 +241,37 @@ Suggest 5 alternatives related to "${targetItem}" that naturally continue this s
         });
       } catch {
         console.error('[predict] Failed to parse refine JSON:', result.text);
+        return jsonResponse({ predictions: [], fallback: true, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
+      }
+    }
+
+    // === Voice hint (descriptor-based reranking from voice input) ===
+    if (requestType === 'voice_hint') {
+      const { voiceDescriptor, currentPredictions } = body;
+      const currentList = (currentPredictions ?? []).join(', ');
+
+      const userMessage = `Sentence so far: "${fullPhrase ?? ''}"
+The user described what they're looking for as: "${voiceDescriptor}"
+Current predictions on screen: ${currentList || 'none'}
+
+Rerank and suggest 5 predictions that incorporate this hint.
+The descriptor word "${voiceDescriptor}" or the closest concrete match should be the FIRST prediction.
+The remaining predictions should be related to the hint while still being natural continuations of the sentence.`;
+
+      const result = await callClaude(SYSTEM_PROMPT, userMessage, 400, 0.7, 4000);
+      if (result.error) {
+        return jsonResponse({ predictions: [], fallback: true, claudeError: result.error });
+      }
+
+      try {
+        const parsed = JSON.parse(result.text);
+        return jsonResponse({
+          predictions: parsed.predictions ?? [],
+          fallback: false,
+          debug: { promptSent: userMessage, rawResponse: result.text, latencyMs: result.latencyMs, source: 'claude' },
+        });
+      } catch {
+        console.error('[predict] Failed to parse voice_hint JSON:', result.text);
         return jsonResponse({ predictions: [], fallback: true, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
       }
     }
@@ -288,7 +331,7 @@ Return ONLY valid JSON: {"modifiers": ["and", "or", "with"]}`;
 
 What word or short phrase comes next?${patternsStr}${avoidStr}`;
 
-    const result = await callClaude(SYSTEM_PROMPT, userMessage, 200, 0.7, 4000);
+    const result = await callClaude(SYSTEM_PROMPT, userMessage, 400, 0.7, 4000);
     if (result.error) {
       return jsonResponse({ predictions: [], fallback: true, claudeError: result.error });
     }

@@ -14,7 +14,7 @@ interface PhraseSectionProps {
 
 export function PhraseSection({ onNavigateUp, onSave, onSpeak, onLongPress }: PhraseSectionProps) {
   const phrase = useCompositionStore((s) => s.getPhrase());
-  const undoSlot = useCompositionStore((s) => s.undoSlot);
+  const backtrack = useCompositionStore((s) => s.backtrack);
   const redoSlot = useCompositionStore((s) => s.redoSlot);
   const addEvent = useCompositionStore((s) => s.addEvent);
   const startedAt = useCompositionStore((s) => s.startedAt);
@@ -26,7 +26,7 @@ export function PhraseSection({ onNavigateUp, onSave, onSpeak, onLongPress }: Ph
           case 'down': onNavigateUp(); break;  // Swipe down = focus moves up to compose
           case 'up': onSave(); break;           // Swipe up = focus moves down = save
           case 'right':
-            undoSlot();
+            backtrack();
             addEvent({
               action: 'undo', item_text: null, item_type: null,
               item_rank: null, phrase_state: useCompositionStore.getState().getPhrase(),

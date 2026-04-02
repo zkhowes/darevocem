@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet } from 'react-native';
 import { GestureArea } from '../gestures/GestureArea';
+import { RecordingIndicator } from '../shared/RecordingIndicator';
 import { useCompositionStore } from '../../stores/composition';
 import { useFocusStore } from '../../stores/focus';
 import { usePreferencesStore } from '../../stores/preferences';
@@ -20,6 +21,12 @@ interface IntentSectionProps {
   initialIntent?: string;
   onContextAction?: (action: 'record' | 'type' | 'camera') => void;
   onIntentChanged?: () => void;
+  /** Called when user taps mic icon to record a voice descriptor on compose screen */
+  onMicPress?: () => void;
+  /** Whether mic recording is active (shows indicator) */
+  isMicActive?: boolean;
+  /** Transcribed text from last voice recording — shown in place of mic label */
+  voiceTranscript?: string | null;
 }
 
 export function IntentSection({
@@ -28,6 +35,9 @@ export function IntentSection({
   initialIntent,
   onContextAction,
   onIntentChanged,
+  onMicPress,
+  isMicActive = false,
+  voiceTranscript,
 }: IntentSectionProps) {
   // Subscribe to the composition store's intent for reactive updates
   const storeIntent = useCompositionStore((s) => s.intent);
@@ -63,6 +73,7 @@ export function IntentSection({
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
 
   const displayDensity = usePreferencesStore((s) => s.displayDensity);
+  const auditoryPreview = usePreferencesStore((s) => s.auditoryPreview);
   const setIntent = useCompositionStore((s) => s.setIntent);
   const incrementCycleCount = useCompositionStore((s) => s.incrementIntentCycleCount);
   const setSection = useFocusStore((s) => s.setSection);
@@ -237,8 +248,6 @@ export function IntentSection({
     onContextAction?.(action);
   }, [onContextAction]);
 
-  const auditoryPreview = usePreferencesStore((s) => s.auditoryPreview);
-
   // Display text: custom intent from keyboard/common, or curated intent from cycling
   const displayText = customIntentText ?? currentIntent.text;
 
@@ -252,7 +261,12 @@ export function IntentSection({
         style={StyleSheet.flatten([
           styles.container,
           isEditable
-            ? { borderBottomColor: intentColor }
+            ? {
+                borderBottomColor: intentColor,
+                // Fitzgerald Key: subtle background tint (15% opacity) so the
+                // color is visible without reading. AAC users scan by color zone.
+                backgroundColor: intentColor + '26', // hex 26 = ~15% opacity
+              }
             : styles.lockedContainer,
         ])}
       >
@@ -270,6 +284,29 @@ export function IntentSection({
           </Text>
           {!isEditable && (
             <Text style={styles.lockIcon}>{'\u{1F512}'}</Text>
+          )}
+          {/* Mic button for voice descriptor capture on compose screen */}
+          {onMicPress && (
+            <Pressable
+              style={[
+                isMicActive ? styles.micButtonActive
+                  : voiceTranscript ? styles.micButtonWithTranscript
+                  : styles.micButton,
+              ]}
+              onPress={onMicPress}
+              hitSlop={12}
+            >
+              {isMicActive ? (
+                <>
+                  <RecordingIndicator active size={10} />
+                  <Text style={styles.micListeningLabel}>listening...</Text>
+                </>
+              ) : voiceTranscript ? (
+                <Text style={styles.micTranscript} numberOfLines={1}>{`"${voiceTranscript}"`}</Text>
+              ) : (
+                <Text style={styles.micIcon}>mic</Text>
+              )}
+            </Pressable>
           )}
         </View>
       </GestureArea>
@@ -326,7 +363,7 @@ const styles = StyleSheet.create({
   container: {
     minHeight: LAYOUT.headerHeight,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 2,
+    borderBottomWidth: 4,
     justifyContent: 'center',
     paddingHorizontal: LAYOUT.screenPadding,
     paddingVertical: 12,
@@ -354,6 +391,52 @@ const styles = StyleSheet.create({
   lockIcon: {
     fontSize: 14,
     marginLeft: 8,
+  },
+  micButton: {
+    marginLeft: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F0F0EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micButtonActive: {
+    marginLeft: 12,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: '#FFF5F5',
+  },
+  micButtonWithTranscript: {
+    marginLeft: 12,
+    flexShrink: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: '#F0F0EB',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  micIcon: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: '#E07B2E',
+  },
+  micListeningLabel: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: '#D94040',
+  },
+  micTranscript: {
+    fontSize: 12,
+    fontWeight: '500' as const,
+    color: '#6B6B6B',
+    fontStyle: 'italic' as const,
+    maxWidth: 160,
   },
   // Context menu styles
   modalOverlay: {

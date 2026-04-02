@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, StyleSheet, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SectionLayout } from '../../components/sections/SectionLayout';
 import { CategoryHeader } from '../../components/sections/CategoryHeader';
@@ -7,35 +7,24 @@ import { GestureArea } from '../../components/gestures/GestureArea';
 import { FocusIndicator } from '../../components/shared/FocusIndicator';
 import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
+import { usePreferencesStore } from '../../stores/preferences';
+import { speakPreview, cancelPreview } from '../../services/auditoryPreview';
 import { supabase } from '../../services/supabase';
 import { formatTodaySpoken } from '../../utils/profileSeeding';
 import type { GestureAction, SavedPhrase } from '../../types';
 import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
 
-// Personal first — it's the hospital check-in category
-const CATEGORIES = ['Personal', 'Introductions', 'Medical', 'Daily', 'Social', 'Custom'];
-
-/**
- * Parse saved phrase text for variable format.
- * Convention: "Label = Value" -> { label: "Label", value: "Value", isVariable: true }
- * Otherwise: { label: null, value: text, isVariable: false }
- */
-function parsePhrase(text: string): { label: string | null; value: string; isVariable: boolean } {
-  const eqIdx = text.indexOf(' = ');
-  if (eqIdx > 0) {
-    return { label: text.slice(0, eqIdx), value: text.slice(eqIdx + 3), isVariable: true };
-  }
-  return { label: null, value: text, isVariable: false };
-}
+// Personal is the only seeded category for now
+const CATEGORIES = ['Personal'];
 
 /**
  * Resolve dynamic values in saved phrases.
- * "Today = ..." always shows today's actual date.
+ * "Today" label always shows today's actual date as the value.
  */
 function resolveDynamicPhrase(phrase: SavedPhrase): SavedPhrase {
-  const parsed = parsePhrase(phrase.text);
-  if (parsed.isVariable && parsed.label === 'Today') {
-    return { ...phrase, text: `Today = ${formatTodaySpoken()}` };
+  if (phrase.label === 'Today') {
+    const today = formatTodaySpoken();
+    return { ...phrase, text: today, value: today };
   }
   return phrase;
 }
@@ -74,6 +63,8 @@ export default function SavedScreen() {
     fetchPhrases();
   }, [category]);
 
+  const auditoryPreview = usePreferencesStore((s) => s.auditoryPreview);
+
   const handleItemAction = (action: GestureAction, phrase: SavedPhrase, index: number) => {
     if (section !== 'compose') return;
     switch (action.type) {
@@ -84,11 +75,26 @@ export default function SavedScreen() {
           default: break;
         }
         break;
+      case 'tap': {
+        // Focus this item and speak the label (for variables) or text preview
+        useFocusStore.getState().setComposeIndex(index);
+        if (auditoryPreview) {
+          // For variables, speak just the label ("Name", "Phone")
+          // Backward compat: old data may have "Label = Value" in text
+          let previewLabel = phrase.label;
+          if (!previewLabel && phrase.text.includes(' = ')) {
+            previewLabel = phrase.text.slice(0, phrase.text.indexOf(' = '));
+          }
+          const previewText = previewLabel ?? phrase.text.split(' ').slice(0, 4).join(' ');
+          speakPreview(previewText);
+        }
+        break;
+      }
       case 'double-tap': {
-        const parsed = parsePhrase(phrase.text);
-        // For variables (e.g., "DOB = December 29 1981"), add only the value
-        const textToAdd = parsed.value;
-        // Preload as a slot and navigate to compose so user can continue with predictions
+        cancelPreview();
+        // For variable phrases (label + value), insert only the value.
+        // For regular phrases, insert the full text.
+        const textToAdd = phrase.value ?? phrase.text;
         const store = useCompositionStore.getState();
         store.preloadSavedPhrase(textToAdd);
         router.push({ pathname: '/(app)/compose', params: { type: 'saved', value: textToAdd } } as never);
@@ -98,7 +104,15 @@ export default function SavedScreen() {
   };
 
   const renderItem = ({ item, index }: { item: SavedPhrase; index: number }) => {
-    const parsed = parsePhrase(item.text);
+    // Parse label/value — use columns if available, fall back to old "=" format
+    let label = item.label ?? null;
+    let value = item.value ?? null;
+    if (!label && item.text.includes(' = ')) {
+      const eqIdx = item.text.indexOf(' = ');
+      label = item.text.slice(0, eqIdx);
+      value = item.text.slice(eqIdx + 3);
+    }
+    const isVariable = !!label;
     return (
       <GestureArea
         onAction={(action) => handleItemAction(action, item, index)}
@@ -109,10 +123,10 @@ export default function SavedScreen() {
           isTopPrediction={index === 0}
           style={styles.item}
         >
-          {parsed.isVariable ? (
+          {isVariable ? (
             <View>
-              <Text style={styles.itemLabel}>{parsed.label}</Text>
-              <Text style={styles.itemText} numberOfLines={2}>{parsed.value}</Text>
+              <Text style={styles.itemLabel}>{label}</Text>
+              <Text style={styles.itemText} numberOfLines={2}>{value}</Text>
             </View>
           ) : (
             <Text style={styles.itemText} numberOfLines={3}>{item.text}</Text>
@@ -125,12 +139,17 @@ export default function SavedScreen() {
   return (
     <SectionLayout
       headerContent={
-        <CategoryHeader
-          categories={CATEGORIES}
-          onCategoryChange={setCategory}
-          onNavigateHome={() => router.back()}
-          onFocusDown={() => setSection('compose', 0)}
-        />
+        <View style={styles.headerRow}>
+          <CategoryHeader
+            categories={CATEGORIES}
+            onCategoryChange={setCategory}
+            onNavigateHome={() => router.back()}
+            onFocusDown={() => setSection('compose', 0)}
+          />
+          <Pressable style={styles.closeButton} onPress={() => router.back()}>
+            <Text style={styles.closeText}>X</Text>
+          </Pressable>
+        </View>
       }
       itemsContent={
         <FlatList
@@ -147,6 +166,25 @@ export default function SavedScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: LAYOUT.screenPadding,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E5E5E0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A1A',
+  },
   item: {
     minHeight: LAYOUT.listItemHeight,
     backgroundColor: '#FFFFFF',

@@ -52,17 +52,17 @@ export function speakPreview(text: string): void {
 
 /**
  * Cancel any pending or in-progress preview speech.
- * Call this when the user commits a selection (double-tap)
- * so the preview doesn't overlap with the committed action.
+ * Call this when the user commits a selection (double-tap) or
+ * when committed speech is about to start (speakPhrase).
+ * Must stop both the debounce timer AND any in-progress system TTS
+ * to prevent a queued preview from overlapping with ElevenLabs playback.
  */
 export function cancelPreview(): void {
   if (previewTimeout) {
     clearTimeout(previewTimeout);
     previewTimeout = null;
   }
-  // Don't call Speech.stop() here — it would also kill committed speech.
-  // The debounce handles rapid transitions; committed speech (speakPhrase)
-  // calls Speech.stop() itself before speaking.
+  Speech.stop();
 }
 
 /** Exported for testing — the debounce delay. */

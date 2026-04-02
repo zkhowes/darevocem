@@ -31,15 +31,15 @@ export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect
   const section = useFocusStore((s) => s.section);
   const moveDown = useFocusStore((s) => s.moveDown);
 
+  const auditoryPreview = usePreferencesStore((s) => s.auditoryPreview);
+  const displayDensity = usePreferencesStore((s) => s.displayDensity);
+
   React.useEffect(() => {
     const count = displayDensity === 'simplified'
       ? Math.min(predictions.length, 3)
       : predictions.length;
     setComposeListSize(count);
   }, [predictions.length, displayDensity]);
-
-  const auditoryPreview = usePreferencesStore((s) => s.auditoryPreview);
-  const displayDensity = usePreferencesStore((s) => s.displayDensity);
 
   // Convert ComposeItems to WheelPickerItems.
   // When a wordType is present (from Claude), use Fitzgerald Key colors.
