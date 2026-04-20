@@ -538,11 +538,15 @@ export default function ComposeScreen() {
       const word = await identifyImage(uri);
       insertAsTopPrediction(word);
     } catch (err) {
+      const msg = (err as Error).message ?? 'Camera error';
       if (__DEV__) {
-        console.error('[compose] Camera/identify error:', (err as Error).message);
+        console.error('[compose] Camera/identify error:', msg);
       }
       setComposeInputMode(null);
       setComposeInputProcessing(false);
+      // Show a user-friendly alert (import is at top of RN)
+      const { Alert } = require('react-native');
+      Alert.alert('Camera unavailable', msg);
     }
   }, [insertAsTopPrediction]);
 

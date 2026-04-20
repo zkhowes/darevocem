@@ -1,4 +1,3 @@
-import * as ImagePicker from 'expo-image-picker';
 import { supabase } from './supabase';
 
 declare const __DEV__: boolean;
@@ -6,11 +5,30 @@ declare const __DEV__: boolean;
 /**
  * Launch the camera, take a photo, and return its local URI.
  * Returns null if the user cancels.
+ *
+ * Uses dynamic import so expo-image-picker's native module doesn't crash
+ * Expo Go at startup — it only loads when the user actually taps Camera.
  */
 export async function takePhoto(): Promise<string | null> {
-  const { status } = await ImagePicker.requestCameraPermissionsAsync();
-  if (status !== 'granted') {
-    throw new Error('Camera permission not granted');
+  let ImagePicker;
+  try {
+    ImagePicker = await import('expo-image-picker');
+  } catch {
+    // Native module not available (Expo Go) — requires a dev build
+    throw new Error('Camera requires a dev build — not available in Expo Go');
+  }
+
+  // Guard against native module missing even after import resolves
+  try {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      throw new Error('Camera permission not granted');
+    }
+  } catch (err) {
+    if ((err as Error).message?.includes('native module')) {
+      throw new Error('Camera requires a dev build — not available in Expo Go');
+    }
+    throw err;
   }
 
   const result = await ImagePicker.launchCameraAsync({

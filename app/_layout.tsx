@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
+import { setAudioModeAsync } from 'expo-audio';
 import { useAuthStore } from '../stores/auth';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { TIMING } from '../constants/config';
@@ -11,6 +12,11 @@ export default function RootLayout() {
   const router = useRouter();
 
   useEffect(() => {
+    // AAC app: speech must always play, even when the hardware mute switch is on.
+    // This sets the iOS audio session category to Playback, which overrides silent mode
+    // for all audio including expo-speech (auditory previews) and expo-audio (cloned voice).
+    setAudioModeAsync({ playsInSilentMode: true });
+
     // Fall back to login if Supabase is unreachable
     const timeout = setTimeout(() => {
       useAuthStore.setState({ isLoading: false });

@@ -41,7 +41,8 @@ describe('classifyGesture', () => {
   });
 
   it('resolves diagonal swipe to dominant horizontal axis', () => {
-    const result = classifyGesture(80, 60, 100, defaultConfig);
+    // 90/50 = 1.8 ratio — above the 1.5 axis ratio threshold
+    const result = classifyGesture(90, 50, 100, defaultConfig);
     expect(result).toEqual({ type: 'swipe', direction: 'right' });
   });
 

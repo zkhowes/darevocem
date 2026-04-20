@@ -1,10 +1,9 @@
 import React, { useCallback, useRef } from 'react';
-import { View, StyleSheet, FlatList, type ViewToken } from 'react-native';
+import { View, StyleSheet, FlatList } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   withSpring,
   useSharedValue,
-  interpolate,
 } from 'react-native-reanimated';
 import { GestureArea } from '../gestures/GestureArea';
 import { LAYOUT, TIMING } from '../../constants/config';
@@ -18,15 +17,15 @@ interface WheelPickerProps {
   renderItem: (item: WheelPickerItem, isFocused: boolean) => React.ReactNode;
 }
 
+// Pure visual component — no gesture handling.
+// All gestures are captured at the list level and routed via focusedIndex.
 function WheelPickerItemView({
   item,
   isFocused,
-  onGesture,
   renderItem,
 }: {
   item: WheelPickerItem;
   isFocused: boolean;
-  onGesture: (gesture: GestureAction) => void;
   renderItem: (item: WheelPickerItem, isFocused: boolean) => React.ReactNode;
 }) {
   const scale = useSharedValue(isFocused ? 1 : 0.95);
@@ -50,29 +49,27 @@ function WheelPickerItemView({
   }));
 
   return (
-    <GestureArea onAction={onGesture} style={styles.gestureWrapper}>
-      <Animated.View
-        style={[
-          styles.itemContainer,
-          isFocused && {
-            backgroundColor: item.color,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.15,
-            shadowRadius: 4,
-            elevation: 3,
-          },
-          !isFocused && {
-            backgroundColor: '#FFFFFF',
-            borderLeftWidth: 4,
-            borderLeftColor: item.color,
-          },
-          animatedStyle,
-        ]}
-      >
-        {renderItem(item, isFocused)}
-      </Animated.View>
-    </GestureArea>
+    <Animated.View
+      style={[
+        styles.itemContainer,
+        isFocused && {
+          backgroundColor: item.color,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.15,
+          shadowRadius: 4,
+          elevation: 3,
+        },
+        !isFocused && {
+          backgroundColor: '#FFFFFF',
+          borderLeftWidth: 4,
+          borderLeftColor: item.color,
+        },
+        animatedStyle,
+      ]}
+    >
+      {renderItem(item, isFocused)}
+    </Animated.View>
   );
 }
 
@@ -95,35 +92,44 @@ export function WheelPicker({
     }
   }, [focusedIndex, items.length]);
 
-  const handleGesture = useCallback(
-    (gesture: GestureAction, item: WheelPickerItem, index: number) => {
-      if (gesture.type === 'swipe') {
-        // Swipe up (finger bottom→top) moves focus DOWN in list (scroll model)
-        if (gesture.direction === 'up' && index < items.length - 1) {
-          onFocusChange(index + 1);
-          return;
+  // Single gesture handler for the entire list.
+  // Vertical swipes change focus; everything else routes to the focused item.
+  const handleListGesture = useCallback((gesture: GestureAction) => {
+    if (gesture.type === 'swipe') {
+      if (gesture.direction === 'up') {
+        if (focusedIndex < items.length - 1) {
+          onFocusChange(focusedIndex + 1);
+        } else {
+          // At last item — forward boundary swipe to parent
+          onGesture(gesture, items[focusedIndex], focusedIndex);
         }
-        // Swipe down (finger top→bottom) moves focus UP in list
-        if (gesture.direction === 'down' && index > 0) {
-          onFocusChange(index - 1);
-          return;
-        }
+        return;
       }
-      onGesture(gesture, item, index);
-    },
-    [items.length, onFocusChange, onGesture],
-  );
+      if (gesture.direction === 'down') {
+        if (focusedIndex > 0) {
+          onFocusChange(focusedIndex - 1);
+        } else {
+          // At first item — forward boundary swipe to parent
+          onGesture(gesture, items[focusedIndex], focusedIndex);
+        }
+        return;
+      }
+    }
+    // Horizontal swipes, taps, double-taps, long-press: route to focused item
+    if (items[focusedIndex]) {
+      onGesture(gesture, items[focusedIndex], focusedIndex);
+    }
+  }, [focusedIndex, items, onFocusChange, onGesture]);
 
   const renderListItem = useCallback(
     ({ item, index }: { item: WheelPickerItem; index: number }) => (
       <WheelPickerItemView
         item={item}
         isFocused={index === focusedIndex}
-        onGesture={(gesture) => handleGesture(gesture, item, index)}
         renderItem={renderItem}
       />
     ),
-    [focusedIndex, handleGesture, renderItem],
+    [focusedIndex, renderItem],
   );
 
   const getItemLayout = useCallback(
@@ -139,37 +145,39 @@ export function WheelPicker({
   );
 
   return (
-    <FlatList
-      ref={flatListRef}
-      data={items}
-      renderItem={renderListItem}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={styles.list}
-      showsVerticalScrollIndicator={false}
-      getItemLayout={getItemLayout}
-      initialScrollIndex={Math.min(focusedIndex, Math.max(0, items.length - 1))}
-      onScrollToIndexFailed={() => {
-        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-      }}
-      // Disable native scroll — focus changes are driven by swipe gestures on each item.
-      // FlatList's scroll responder otherwise intercepts vertical touches before
-      // PanResponder can classify them as swipes.
-      scrollEnabled={false}
-    />
+    <GestureArea onAction={handleListGesture} style={styles.listGestureWrapper}>
+      <FlatList
+        ref={flatListRef}
+        data={items}
+        renderItem={renderListItem}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
+        getItemLayout={getItemLayout}
+        initialScrollIndex={Math.min(focusedIndex, Math.max(0, items.length - 1))}
+        onScrollToIndexFailed={() => {
+          flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+        }}
+        // Disable native scroll — focus changes are driven by swipe gestures
+        // at the list level, not by FlatList's scroll responder.
+        scrollEnabled={false}
+      />
+    </GestureArea>
   );
 }
 
 const styles = StyleSheet.create({
+  listGestureWrapper: {
+    flex: 1,
+  },
   list: {
     paddingVertical: LAYOUT.screenPadding,
     gap: LAYOUT.itemGap,
-  },
-  gestureWrapper: {
-    marginHorizontal: LAYOUT.screenPadding,
   },
   itemContainer: {
     borderRadius: 12,
     justifyContent: 'center',
     paddingHorizontal: LAYOUT.screenPadding,
+    marginHorizontal: LAYOUT.screenPadding,
   },
 });

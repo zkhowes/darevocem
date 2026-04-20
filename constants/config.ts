@@ -7,7 +7,7 @@ export const GESTURE = {
 } as const;
 
 export const TIMING = {
-  apiTimeoutMs: 2000,
+  apiTimeoutMs: 4000,
   focusAnimationMs: 150,
   intentCycleMs: 200,
   itemRejectMs: 200,

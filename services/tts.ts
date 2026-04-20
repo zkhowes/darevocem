@@ -1,5 +1,5 @@
 import * as Speech from 'expo-speech';
-import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { createAudioPlayer } from 'expo-audio';
 import type { AudioPlayer } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -83,10 +83,7 @@ async function speakWithClonedVoice(text: string, options?: SpeakOptions): Promi
   }
   tempFile.write(bytes);
 
-  // Ensure audio mode is set for playback
-  await setAudioModeAsync({ playsInSilentMode: true });
-
-  // Play via expo-audio
+  // Play via expo-audio (playsInSilentMode is set globally in _layout.tsx)
   const player = createAudioPlayer(tempFile.uri);
   currentPlayer = player;
 

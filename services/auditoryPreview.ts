@@ -34,18 +34,19 @@ export function speakPreview(text: string): void {
     clearTimeout(previewTimeout);
   }
 
-  previewTimeout = setTimeout(async () => {
-    // Stop any in-progress preview speech (but not committed speech —
-    // expo-speech doesn't distinguish, so we rely on the debounce
-    // and the fact that committed speech uses speakPhrase which stops first)
-    await Speech.stop();
+  previewTimeout = setTimeout(() => {
+    // Stop any in-progress preview speech before starting a new one.
+    // On iOS, Speech.stop() is synchronous — calling it then immediately
+    // calling Speech.speak() in the same tick works reliably.
+    // The previous async/await pattern caused the speak() call to land
+    // in a new microtask, which iOS sometimes dropped silently.
+    Speech.stop();
 
     Speech.speak(text, {
       language: PREVIEW_CONFIG.language,
       rate: PREVIEW_CONFIG.rate,
       pitch: PREVIEW_CONFIG.pitch,
       volume: PREVIEW_CONFIG.volume,
-      // No callbacks needed — previews are fire-and-forget
     });
   }, DEBOUNCE_MS);
 }

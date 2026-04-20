@@ -18,6 +18,12 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Dare Vocem uses the camera to help you identify objects and add them to your sentences."
+        }
+      ],
+      [
         "expo-speech-recognition",
         {
           "microphonePermission": "Dare Vocem needs microphone access to hear what you want to say and help you complete your sentences.",
@@ -26,6 +32,12 @@
         }
       ]
     ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/darevocem"
+    },
     "experiments": {
       "typedRoutes": true
     }
