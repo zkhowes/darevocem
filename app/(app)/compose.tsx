@@ -13,6 +13,7 @@ import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
 import { getTimeOfDay } from '../../services/context';
 import { getPredictions, getCommonPhrases } from '../../services/predictions';
+import { getOrFetchPredictions, getCachedPredictions, prefetchPredictions } from '../../services/predictionCache';
 import { speakPhrase } from '../../services/tts';
 import { startRecording, stopRecording, cleanupRecording } from '../../services/recording';
 import { transcribeAudio } from '../../services/transcription';
@@ -51,7 +52,9 @@ export default function ComposeScreen() {
     stopListening: composeStopListening,
   } = useLiveSpeech();
 
-  // On mount: load phrase-mode items or ensure predict-mode predictions exist
+  // On mount: load phrase-mode items or ensure predict-mode predictions exist.
+  // Also kick off speculative prefetch for the top current prediction's next
+  // slot, so the first user selection is usually an instant cache hit.
   useEffect(() => {
     const store = useCompositionStore.getState();
     focusReset();
@@ -64,9 +67,26 @@ export default function ComposeScreen() {
       if (store.intent && store.predictions.length === 0 && !store.isLoading) {
         store.setLoading(true);
         const fullPhrase = [store.intent, ...store.slots].filter(Boolean).join(' ');
-        getPredictions(fullPhrase, getTimeOfDay())
-          .then((items) => useCompositionStore.getState().setPredictions(items))
+        const timeOfDay = getTimeOfDay();
+        getOrFetchPredictions(fullPhrase, timeOfDay)
+          .then(({ predictions, source }) => {
+            if (__DEV__) console.log(`[Compose] initial fetch → ${source}`);
+            useCompositionStore.getState().setPredictions(predictions);
+            // Speculatively prefetch next slot for the top prediction
+            const top = predictions[0];
+            if (top) {
+              prefetchPredictions(`${fullPhrase} ${top.value ?? top.text}`, timeOfDay);
+            }
+          })
           .finally(() => useCompositionStore.getState().setLoading(false));
+      } else if (store.predictions.length > 0) {
+        // Predictions already loaded (preload from Home cache). Still kick off
+        // the speculative next-slot prefetch.
+        const fullPhrase = [store.intent, ...store.slots].filter(Boolean).join(' ');
+        const top = store.predictions[0];
+        if (top) {
+          prefetchPredictions(`${fullPhrase} ${top.value ?? top.text}`, getTimeOfDay());
+        }
       }
     }
   }, []);
@@ -249,6 +269,8 @@ export default function ComposeScreen() {
 
   // Double-tap: select the focused word, add it to the phrase, fetch next predictions.
   // Uses advance() to push prediction history so phrase-bar undo restores predictions.
+  // Speculatively prefetches the *next* slot for the new top prediction, so the
+  // following advance() is often an instant cache hit.
   const handleSelect = useCallback(async (item: ComposeItem) => {
     const state = useCompositionStore.getState();
     const selectedText = state.modifierState?.targetItem === item.text
@@ -259,19 +281,24 @@ export default function ComposeScreen() {
     // Clear tried items and voice descriptors — new word means fresh prediction space
     state.clearTriedItems();
     state.clearVoiceDescriptors();
-    state.setLoading(true);
+
+    const freshState = useCompositionStore.getState();
+    const fullPhrase = [freshState.intent, ...freshState.slots, selectedText].filter(Boolean).join(' ');
+    const timeOfDay = getTimeOfDay();
+
+    // Cache-aware fetch — skip spinner on warm hit
+    const cached = getCachedPredictions(fullPhrase, []);
+    if (!cached) state.setLoading(true);
+
     try {
-      const freshState = useCompositionStore.getState();
-      const fullPhrase = [freshState.intent, ...freshState.slots, selectedText].filter(Boolean).join(' ');
-      const nextPredictions = await getPredictions(
-        fullPhrase,
-        getTimeOfDay(),
-      );
+      const { predictions: nextPredictions, source } = cached
+        ? { predictions: cached, source: 'cache' as const }
+        : await getOrFetchPredictions(fullPhrase, timeOfDay);
 
       if (__DEV__) {
         logPredictionDebug({
           timestamp: Date.now(),
-          action: `SELECT "${selectedText}"`,
+          action: `SELECT "${selectedText}" (${source})`,
           fullPhrase,
           triedItems: [],
           predictions: nextPredictions.map((p) => p.text),
@@ -282,6 +309,15 @@ export default function ComposeScreen() {
       // advance() pushes current predictions to history AND adds the slot,
       // so phrase-bar swipe-right (undoSlot -> backtrack) restores them.
       useCompositionStore.getState().advance(selectedText, nextPredictions);
+
+      // Speculatively prefetch the next-next slot. If user picks the top
+      // prediction, the following handleSelect will be an instant cache hit.
+      // If they pick a non-top option, this prefetch is wasted but cheap.
+      const topNext = nextPredictions[0];
+      if (topNext) {
+        const speculativePhrase = `${fullPhrase} ${topNext.value ?? topNext.text}`;
+        prefetchPredictions(speculativePhrase, timeOfDay);
+      }
     } finally {
       useCompositionStore.getState().setLoading(false);
     }

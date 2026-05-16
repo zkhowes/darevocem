@@ -24,6 +24,7 @@ import { ContextMenu } from '../../components/shared/ContextMenu';
 import { useCompositionStore } from '../../stores/composition';
 import { getTimeOfDay } from '../../services/context';
 import { getPredictions, getCommonPhrases } from '../../services/predictions';
+import { prefetchPredictions, getOrFetchPredictions, getCachedPredictions } from '../../services/predictionCache';
 import { useLiveSpeech } from '../../hooks/useLiveSpeech';
 import { INTENTS, DEFAULT_INTENT_BY_TIME } from '../../constants/intents';
 import { LAYOUT } from '../../constants/config';
@@ -83,7 +84,9 @@ export default function HomeScreen() {
     return cards.slice(0, MAX_PREDICTIONS);
   }, []);
 
-  // Load common phrases (time-of-day based) and saved phrases on mount
+  // Load common phrases (time-of-day based) and saved phrases on mount.
+  // Also warm the prediction cache for the 3 visible intent cards — by the
+  // time the user taps one, predictions are usually already cached.
   useEffect(() => {
     const timeOfDay = getTimeOfDay();
     getCommonPhrases(timeOfDay).then((items) => {
@@ -99,7 +102,12 @@ export default function HomeScreen() {
       .then(({ data }) => {
         if (data) setSavedPhrases(data);
       });
-  }, []);
+
+    // Warm cache for visible prediction cards (fire-and-forget).
+    for (const card of predictionCards) {
+      prefetchPredictions(card.text, timeOfDay);
+    }
+  }, [predictionCards]);
 
   // Intro phrase — shown once after onboarding
   useEffect(() => {
@@ -173,20 +181,29 @@ export default function HomeScreen() {
     setIsProcessing(false);
   }, [finalTranscript, isListening]);
 
-  // Navigate to compose with a prediction card
+  // Navigate to compose with a prediction card.
+  // Uses the prediction cache — if Home prefetched on mount, predictions are
+  // usually ready by tap time and the compose screen renders without a spinner.
   const handleCardTap = useCallback(
     (intentText: string) => {
       const store = useCompositionStore.getState();
-      store.preload(intentText, []);
-      store.setLoading(true);
+      const timeOfDay = getTimeOfDay();
 
-      getPredictions(intentText, getTimeOfDay())
-        .then((predictions) => {
-          useCompositionStore.getState().setPredictions(predictions);
-        })
-        .finally(() => {
-          useCompositionStore.getState().setLoading(false);
+      // Synchronous cache peek — avoids the loading flash when warm.
+      const cached = getCachedPredictions(intentText, []);
+      store.preload(intentText, cached ?? []);
+      store.setLoading(!cached);
+
+      if (!cached) {
+        getOrFetchPredictions(intentText, timeOfDay).then(({ predictions, source }) => {
+          if (__DEV__) console.log(`[Home] tap "${intentText}" → ${source}`);
+          const s = useCompositionStore.getState();
+          s.setPredictions(predictions);
+          s.setLoading(false);
         });
+      } else if (__DEV__) {
+        console.log(`[Home] tap "${intentText}" → cache (sync)`);
+      }
 
       router.push({ pathname: '/(app)/compose', params: { type: 'prediction', value: intentText } } as never);
     },
@@ -199,19 +216,22 @@ export default function HomeScreen() {
 
     const intent = extractedIntent.intent;
     const store = useCompositionStore.getState();
-    store.preload(intent, []);
+    const timeOfDay = getTimeOfDay();
+
+    const cached = getCachedPredictions(intent, []);
+    store.preload(intent, cached ?? []);
     if (extractedIntent.descriptors.length > 0) {
       store.setVoiceDescriptors(extractedIntent.descriptors);
     }
-    store.setLoading(true);
+    store.setLoading(!cached);
 
-    getPredictions(intent, getTimeOfDay())
-      .then((predictions) => {
-        useCompositionStore.getState().setPredictions(predictions);
-      })
-      .finally(() => {
-        useCompositionStore.getState().setLoading(false);
+    if (!cached) {
+      getOrFetchPredictions(intent, timeOfDay).then(({ predictions }) => {
+        const s = useCompositionStore.getState();
+        s.setPredictions(predictions);
+        s.setLoading(false);
       });
+    }
 
     setExtractedIntent(null);
     router.push({ pathname: '/(app)/compose', params: { type: 'prediction', value: intent } } as never);

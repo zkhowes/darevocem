@@ -17,11 +17,11 @@ const SYSTEM_PROMPT = `You help a person with aphasia complete sentences. They c
 
 Rules:
 - Return ONLY valid JSON. No markdown, no explanation, no preamble.
-- Predict 5 next words or short phrases (1-3 words each) that naturally continue the sentence.
+- Predict 3 next words or short phrases (1-3 words each) that naturally continue the sentence.
 - Rank by likelihood — most probable first.
-- Each prediction must represent a DIFFERENT logical path the sentence could take:
-  P1, P2: high-probability completions (may be in the same category).
-  P3, P4, P5: significantly different directions — vary the part of speech, semantic category, or sentence structure. Example: if P1 is a noun ("coffee"), P3 could be a verb ("go"), P4 an adjective ("comfortable"), P5 a phrase ("to talk to someone").
+- The 3 predictions must represent DIFFERENT logical paths the sentence could take:
+  P1: highest-probability completion.
+  P2, P3: significantly different directions — vary the part of speech, semantic category, or sentence structure. Example: if P1 is a noun ("coffee"), P2 could be a verb ("go") and P3 a phrase ("to talk to someone").
 - NEVER repeat any word already in the sentence.
 - Predictions must be grammatically correct continuations.
 - Be warm, practical, conversational. This is casual speech, not formal writing.
@@ -37,7 +37,7 @@ For each prediction, include a "wordType" field with one of: "verb", "noun", "de
 - social: social words (please, thank you, hello)
 - misc: everything else (and, the, but, now)
 
-JSON format: {"predictions": [{"text": "coffee", "wordType": "noun"}, {"text": "to go", "wordType": "verb"}, {"text": "help", "wordType": "verb"}, {"text": "tired", "wordType": "descriptor"}, {"text": "someone", "wordType": "person"}]}`;
+JSON format: {"predictions": [{"text": "coffee", "wordType": "noun"}, {"text": "to go", "wordType": "verb"}, {"text": "help", "wordType": "verb"}]}`;
 
 const REFINE_SYSTEM_PROMPT = `You help a person with aphasia complete sentences. They saw a word suggestion and indicated it's close but not what they want. You suggest alternatives in the same semantic neighborhood.
 
@@ -331,7 +331,9 @@ Return ONLY valid JSON: {"modifiers": ["and", "or", "with"]}`;
 
 What word or short phrase comes next?${patternsStr}${avoidStr}`;
 
-    const result = await callClaude(SYSTEM_PROMPT, userMessage, 400, 0.7, 4000);
+    // max_tokens=200: 3 predictions with wordType fit comfortably in ~120 tokens.
+    // Output size is what dominates Haiku latency, so this is a real speed win.
+    const result = await callClaude(SYSTEM_PROMPT, userMessage, 200, 0.7, 4000);
     if (result.error) {
       return jsonResponse({ predictions: [], fallback: true, claudeError: result.error });
     }
