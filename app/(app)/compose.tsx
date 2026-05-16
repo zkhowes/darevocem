@@ -629,22 +629,32 @@ export default function ComposeScreen() {
 
       <SectionLayout
         headerContent={
-          <IntentSection
-            onNavigateHome={handleNavigateHome}
-            timeOfDay={getTimeOfDay()}
-            initialIntent={intent ?? undefined}
-            onIntentChanged={handleIntentChanged}
-            onMicPress={composeMode === 'predict' ? handleMicPress : undefined}
-            isMicActive={isMicActive}
-            voiceTranscript={voiceTranscript}
-            onContextAction={(action) => {
-              if (action === 'record') {
-                handleMicPress();
-              } else if (action === 'type') {
-                setContextMenuVisible(true);
-              }
-            }}
-          />
+          composeMode === 'phrase' ? (
+            // In phrase mode the phrase bar already shows the full text and
+            // there's no intent to cycle. Render a minimal label only.
+            <View style={styles.phraseModeHeader}>
+              <Text style={styles.phraseModeLabel}>
+                {phraseSource === 'saved' ? 'SAVED' : 'COMMON'}
+              </Text>
+            </View>
+          ) : (
+            <IntentSection
+              onNavigateHome={handleNavigateHome}
+              timeOfDay={getTimeOfDay()}
+              initialIntent={intent ?? undefined}
+              onIntentChanged={handleIntentChanged}
+              onMicPress={handleMicPress}
+              isMicActive={isMicActive}
+              voiceTranscript={voiceTranscript}
+              onContextAction={(action) => {
+                if (action === 'record') {
+                  handleMicPress();
+                } else if (action === 'type') {
+                  setContextMenuVisible(true);
+                }
+              }}
+            />
+          )
         }
         itemsContent={
           composeInputMode ? (
@@ -703,5 +713,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#1A1A1A',
+  },
+  phraseModeHeader: {
+    paddingHorizontal: LAYOUT.screenPadding,
+    paddingVertical: 8,
+  },
+  phraseModeLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#999',
+    letterSpacing: 2,
   },
 });

@@ -1,17 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, Pressable, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SectionLayout } from '../../components/sections/SectionLayout';
-import { GestureArea } from '../../components/gestures/GestureArea';
-import { FocusIndicator } from '../../components/shared/FocusIndicator';
+import { WheelPicker } from '../../components/shared/WheelPicker';
 import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
 import { usePreferencesStore } from '../../stores/preferences';
 import { speakPreview, cancelPreview } from '../../services/auditoryPreview';
+import { speakPhrase } from '../../services/tts';
 import { getCommonPhrases } from '../../services/predictions';
 import { getTimeOfDay } from '../../services/context';
-import type { GestureAction, ComposeItem } from '../../types';
 import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
+import type { GestureAction, ComposeItem, WheelPickerItem } from '../../types';
 
 const TIME_LABELS = {
   morning: 'Good Morning',
@@ -20,14 +20,19 @@ const TIME_LABELS = {
   night: 'Good Night',
 } as const;
 
+const COMMON_COLOR = '#2B7A78';
+
 export default function CommonScreen() {
   const router = useRouter();
   const [phrases, setPhrases] = useState<ComposeItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [contextMenuVisible, setContextMenuVisible] = useState(false);
+  const [pendingPhrase, setPendingPhrase] = useState<string | null>(null);
+
   const composeIndex = useFocusStore((s) => s.composeIndex);
-  const section = useFocusStore((s) => s.section);
-  const moveDown = useFocusStore((s) => s.moveDown);
+  const setComposeIndex = useFocusStore((s) => s.setComposeIndex);
   const setSection = useFocusStore((s) => s.setSection);
+  const setComposeListSize = useFocusStore((s) => s.setComposeListSize);
   const focusReset = useFocusStore((s) => s.reset);
   const auditoryPreview = usePreferencesStore((s) => s.auditoryPreview);
 
@@ -42,7 +47,7 @@ export default function CommonScreen() {
       try {
         const items = await getCommonPhrases(timeOfDay);
         setPhrases(items);
-        useFocusStore.getState().setComposeListSize(items.length);
+        setComposeListSize(items.length);
       } finally {
         setLoading(false);
       }
@@ -50,79 +55,145 @@ export default function CommonScreen() {
     load();
   }, []);
 
-  const handleItemAction = (action: GestureAction, phrase: ComposeItem, index: number) => {
-    if (section !== 'compose') return;
-    switch (action.type) {
-      case 'swipe':
-        switch (action.direction) {
-          case 'down': moveDown(); break;
-          default: break;
-        }
-        break;
-      case 'tap':
-        useFocusStore.getState().setComposeIndex(index);
-        if (auditoryPreview) {
-          speakPreview(phrase.text.split(' ').slice(0, 4).join(' '));
-        }
-        break;
-      case 'double-tap': {
-        cancelPreview();
-        // Preload the full phrase and navigate to compose
-        const store = useCompositionStore.getState();
-        store.preloadPhraseMode(phrase.text, 'common');
-        router.push({ pathname: '/(app)/compose', params: { type: 'common', value: phrase.text } } as never);
-        break;
-      }
-    }
-  };
+  const wheelItems: WheelPickerItem[] = phrases.map((p) => ({
+    id: p.id,
+    text: p.text,
+    itemType: 'common',
+    color: COMMON_COLOR,
+    metadata: { rank: p.rank },
+  }));
 
-  const renderItem = ({ item, index }: { item: ComposeItem; index: number }) => (
-    <GestureArea
-      onAction={(action) => handleItemAction(action, item, index)}
-      style={{ marginBottom: LAYOUT.itemGap }}
-    >
-      <FocusIndicator
-        isFocused={section === 'compose' && composeIndex === index}
-        isTopPrediction={index === 0}
-        style={styles.item}
-      >
-        <Text style={styles.itemText} numberOfLines={3}>{item.text}</Text>
-      </FocusIndicator>
-    </GestureArea>
+  const handleFocusChange = useCallback((index: number) => {
+    setComposeIndex(index);
+    const item = phrases[index];
+    if (item && auditoryPreview) {
+      speakPreview(item.text);
+    }
+  }, [phrases, auditoryPreview, setComposeIndex]);
+
+  // Double-tap on wheel: set the phrase as the intent (in-place, no nav)
+  const handleGesture = useCallback(
+    (gesture: GestureAction, _item: WheelPickerItem, index: number) => {
+      const phrase = phrases[index];
+      if (!phrase) return;
+      switch (gesture.type) {
+        case 'double-tap': {
+          cancelPreview();
+          const store = useCompositionStore.getState();
+          // Replace the whole phrase — common phrases are complete sentences
+          store.reset();
+          store.setIntent(phrase.text);
+          break;
+        }
+        case 'long-press':
+          setPendingPhrase(phrase.text);
+          setContextMenuVisible(true);
+          break;
+      }
+    },
+    [phrases],
+  );
+
+  const handleSwitchToCompose = useCallback(() => {
+    setContextMenuVisible(false);
+    if (!pendingPhrase) return;
+    const store = useCompositionStore.getState();
+    store.preloadPhraseMode(pendingPhrase, 'common');
+    const phrase = pendingPhrase;
+    setPendingPhrase(null);
+    router.push({
+      pathname: '/(app)/compose',
+      params: { type: 'common', value: phrase },
+    } as never);
+  }, [pendingPhrase, router]);
+
+  const handlePhraseSpeak = useCallback(async () => {
+    const phrase = useCompositionStore.getState().getPhrase();
+    if (!phrase) return;
+    cancelPreview();
+    await speakPhrase(phrase);
+  }, []);
+
+  const renderItem = useCallback(
+    (item: WheelPickerItem, isFocused: boolean) => (
+      <View style={styles.itemContent}>
+        <Text style={[styles.itemLabel, isFocused && styles.focusedLabel]}>
+          C{(item.metadata?.rank as number ?? 0) + 1}
+        </Text>
+        <Text
+          style={isFocused ? styles.focusedText : styles.itemText}
+          numberOfLines={3}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}
+        >
+          {item.text}
+        </Text>
+      </View>
+    ),
+    [],
   );
 
   return (
-    <SectionLayout
-      headerContent={
-        <View style={styles.header}>
-          <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.headerLabel}>Common Phrases</Text>
-              <Text style={styles.headerTime}>{TIME_LABELS[timeOfDay]}</Text>
+    <>
+      <SectionLayout
+        headerContent={
+          <View style={styles.header}>
+            <View style={styles.headerRow}>
+              <View>
+                <Text style={styles.headerLabel}>Common Phrases</Text>
+                <Text style={styles.headerTime}>{TIME_LABELS[timeOfDay]}</Text>
+              </View>
+              <Pressable style={styles.closeButton} onPress={() => router.back()}>
+                <Text style={styles.closeText}>X</Text>
+              </Pressable>
             </View>
-            <Pressable style={styles.closeButton} onPress={() => router.back()}>
-              <Text style={styles.closeText}>X</Text>
+          </View>
+        }
+        itemsContent={
+          loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#E07B2E" />
+            </View>
+          ) : (
+            <WheelPicker
+              items={wheelItems}
+              focusedIndex={composeIndex}
+              onFocusChange={handleFocusChange}
+              onGesture={handleGesture}
+              renderItem={renderItem}
+            />
+          )
+        }
+        onPhraseSave={() => {}}
+        onPhraseNavigateUp={() => setSection('compose')}
+        onPhraseSpeak={handlePhraseSpeak}
+      />
+
+      <Modal
+        visible={contextMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setContextMenuVisible(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setContextMenuVisible(false)}>
+          <View style={styles.contextMenu}>
+            <Text style={styles.contextMenuTitle}>
+              {pendingPhrase ? `"${pendingPhrase.slice(0, 40)}${pendingPhrase.length > 40 ? '...' : ''}"` : ''}
+            </Text>
+            <Pressable style={styles.contextMenuItem} onPress={handleSwitchToCompose}>
+              <Text style={styles.contextMenuText}>Compose</Text>
+              <Text style={styles.contextMenuHint}>Add to this phrase with predictions</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.contextMenuItem, styles.contextMenuCancel]}
+              onPress={() => setContextMenuVisible(false)}
+            >
+              <Text style={styles.contextMenuCancelText}>Cancel</Text>
             </Pressable>
           </View>
-        </View>
-      }
-      itemsContent={
-        loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#E07B2E" />
-          </View>
-        ) : (
-          <FlatList
-            data={phrases}
-            renderItem={renderItem}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-          />
-        )
-      }
-      onPhraseSave={() => {}}
-      onPhraseNavigateUp={() => setSection('compose')}
-    />
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -159,23 +230,79 @@ const styles = StyleSheet.create({
     color: '#1A1A1A',
     marginTop: 4,
   },
-  item: {
-    minHeight: LAYOUT.listItemHeight,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    justifyContent: 'center',
-    paddingHorizontal: LAYOUT.screenPadding,
-    paddingVertical: 12,
+  itemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  itemLabel: {
+    fontSize: TYPOGRAPHY.itemLabel.size,
+    color: '#6B6B6B',
+    marginRight: 8,
+  },
+  focusedLabel: {
+    color: 'rgba(255, 255, 255, 0.7)',
   },
   itemText: {
-    fontSize: TYPOGRAPHY.listItem.size,
-    fontWeight: TYPOGRAPHY.listItem.weight,
+    fontSize: LAYOUT.wheelPickerItemFontSize,
+    fontWeight: '500',
     color: '#1A1A1A',
+    flex: 1,
+  },
+  focusedText: {
+    fontSize: LAYOUT.wheelPickerFocusedFontSize,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 40,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  contextMenu: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    width: '80%',
+    maxWidth: 320,
+  },
+  contextMenuTitle: {
+    fontSize: 14,
+    color: '#6B6B6B',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  contextMenuItem: {
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E5E0',
+  },
+  contextMenuText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#E07B2E',
+    textAlign: 'center',
+  },
+  contextMenuHint: {
+    fontSize: 13,
+    color: '#6B6B6B',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  contextMenuCancel: {
+    marginTop: 8,
+  },
+  contextMenuCancelText: {
+    fontSize: 16,
+    color: '#6B6B6B',
+    textAlign: 'center',
   },
 });
