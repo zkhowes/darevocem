@@ -10,22 +10,19 @@ import {
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withSequence,
-  withTiming,
-  cancelAnimation,
-} from 'react-native-reanimated';
 import { ErrorBoundary } from '../../components/shared/ErrorBoundary';
 import { MicDebugOverlay } from '../../components/shared/MicDebugOverlay';
-import { ContextMenu } from '../../components/shared/ContextMenu';
+import { HandwritingOverlay } from '../../components/shared/HandwritingOverlay';
+import { InputCarousel, type CarouselItem } from '../../components/shared/InputCarousel';
 import { useCompositionStore } from '../../stores/composition';
 import { getTimeOfDay } from '../../services/context';
 import { getPredictions, getCommonPhrases } from '../../services/predictions';
+import { fireContextualSuggestionForHome } from '../../services/contextualSuggestions';
+import { mergeCommonPhrase } from '../../utils/predictionMerge';
 import { prefetchPredictions, getOrFetchPredictions, getCachedPredictions } from '../../services/predictionCache';
 import { useLiveSpeech } from '../../hooks/useLiveSpeech';
+import { takePhoto, identifyImage } from '../../services/camera';
+import { generateId } from '../../types';
 import { INTENTS, DEFAULT_INTENT_BY_TIME } from '../../constants/intents';
 import { LAYOUT } from '../../constants/config';
 import { supabase } from '../../services/supabase';
@@ -36,16 +33,30 @@ const INTRO_SEEN_KEY = 'darevocem_intro_phrase_seen';
 // Max prediction cards shown on home (3 normally, 4 if speech/keyboard produced P0)
 const MAX_PREDICTIONS = 3;
 
+// Input carousel items. Order matters: mic at index 0 is the default focus on
+// every screen mount. Text labels (not emoji) because emoji rendering is
+// unreliable across simulator/device fonts at the focused-item size — labels
+// also match the rest of the project's visual vocabulary.
+const CAROUSEL_ITEMS: CarouselItem[] = [
+  { id: 'mic', glyph: 'mic', label: 'Speak' },
+  { id: 'pen', glyph: 'pen', label: 'Write by hand' },
+  { id: 'abc', glyph: 'abc', label: 'Type' },
+  { id: 'cam', glyph: 'cam', label: 'Identify with camera' },
+];
+
 declare const __DEV__: boolean;
 
 export default function HomeScreen() {
   const router = useRouter();
-  const [contextMenuVisible, setContextMenuVisible] = useState(false);
   const [showKeyboard, setShowKeyboard] = useState(false);
   const [keyboardText, setKeyboardText] = useState('');
   const keyboardRef = useRef<TextInput>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [introPhrase, setIntroPhrase] = useState<string | null>(null);
+  const [showHandwriting, setShowHandwriting] = useState(false);
+
+  // Input carousel — default focus is mic (idx 0). Resets on every mount.
+  const [focusedInputIndex, setFocusedInputIndex] = useState(0);
 
   // Common & Saved phrases for home screen sections
   const [commonPhrases, setCommonPhrases] = useState<ComposeItem[]>([]);
@@ -67,6 +78,9 @@ export default function HomeScreen() {
   // Post-processing state (Gemini intent extraction)
   const [isProcessing, setIsProcessing] = useState(false);
   const [extractedIntent, setExtractedIntent] = useState<TranscriptionResult | null>(null);
+
+  // Camera-from-home processing state (disables the camera flank while in flight)
+  const [isCameraProcessing, setIsCameraProcessing] = useState(false);
 
   // Prediction cards — curated intents, reordered by time-of-day, capped at 3
   const predictionCards = useMemo(() => {
@@ -142,6 +156,12 @@ export default function HomeScreen() {
     await startListening();
   }, [isListening, startListening, stopListening]);
 
+  // Merge a contextual common-phrase suggestion into the home Common section.
+  // Pure merge logic in utils/predictionMerge.ts so it'\''s testable.
+  const mergeContextualSuggestion = useCallback((item: ComposeItem) => {
+    setCommonPhrases((current) => mergeCommonPhrase(current, item));
+  }, []);
+
   // When speech recognition ends with a final transcript, send to Gemini for intent extraction
   useEffect(() => {
     if (!finalTranscript || isListening) return;
@@ -179,7 +199,15 @@ export default function HomeScreen() {
       rawTranscript: finalTranscript,
     });
     setIsProcessing(false);
-  }, [finalTranscript, isListening]);
+    // Fire the contextual common-phrase suggestion NOW (while the user is
+    // still on home reviewing the P0 card), not on tap (when they'd navigate
+    // away before the suggestion resolved).
+    fireContextualSuggestionForHome(matchedIntent, mergeContextualSuggestion);
+    // Speculative prefetch — compose will need predictions for this intent
+    // when the user taps. Kicking off now means the navigation lands on a
+    // warm cache (~instant) instead of cold (~1.5s Claude roundtrip).
+    prefetchPredictions(matchedIntent, getTimeOfDay());
+  }, [finalTranscript, isListening, mergeContextualSuggestion]);
 
   // Navigate to compose with a prediction card.
   // Uses the prediction cache — if Home prefetched on mount, predictions are
@@ -237,14 +265,107 @@ export default function HomeScreen() {
     router.push({ pathname: '/(app)/compose', params: { type: 'prediction', value: intent } } as never);
   }, [extractedIntent, router]);
 
-  // Keyboard submit
+  // Keyboard submit: don't navigate. Land the typed text as a P0 candidate
+  // card on home (same slot mic uses), fire the contextual common-phrase
+  // suggestion, let the user review and tap to advance.
   const handleKeyboardSubmit = useCallback(() => {
-    if (keyboardText.trim()) {
-      handleCardTap(keyboardText.trim());
-      setKeyboardText('');
-      setShowKeyboard(false);
+    const text = keyboardText.trim();
+    if (!text) return;
+    setExtractedIntent({
+      intent: text,
+      descriptors: [],
+      confidence: 'high',
+      rawTranscript: text,
+    });
+    setKeyboardText('');
+    setShowKeyboard(false);
+    fireContextualSuggestionForHome(text, mergeContextualSuggestion);
+    prefetchPredictions(text, getTimeOfDay());
+  }, [keyboardText, mergeContextualSuggestion]);
+
+  // Handwriting accept (letter or drawing mode). Same pattern: land as P0,
+  // fire suggestion, don't navigate. User taps the card when they're ready.
+  const handleHandwritingAccept = useCallback((word: string) => {
+    setShowHandwriting(false);
+    if (!word || word.trim().length === 0) return;
+    const text = word.trim();
+    setExtractedIntent({
+      intent: text,
+      descriptors: [],
+      confidence: 'high',
+      rawTranscript: text,
+    });
+    fireContextualSuggestionForHome(text, mergeContextualSuggestion);
+    prefetchPredictions(text, getTimeOfDay());
+  }, [mergeContextualSuggestion]);
+
+  // Home camera tap: take a photo, identify it, land the literal name as a
+  // P0 candidate card on home. Same non-navigating pattern as mic/keyboard/
+  // handwriting. The contextual interpretation is fired through the common-
+  // phrase suggestion hook so we don't double-surface the same concept.
+  const handleHomeCameraTap = useCallback(async () => {
+    if (isCameraProcessing) return;
+    setIsCameraProcessing(true);
+    try {
+      const uri = await takePhoto();
+      if (!uri) {
+        setIsCameraProcessing(false);
+        return;
+      }
+
+      const result = await identifyImage(uri);
+      const literal = result.literal?.trim();
+      if (!literal) {
+        setIsCameraProcessing(false);
+        return;
+      }
+
+      setExtractedIntent({
+        intent: literal,
+        descriptors: [],
+        confidence: 'high',
+        rawTranscript: literal,
+      });
+      setIsCameraProcessing(false);
+      prefetchPredictions(literal, getTimeOfDay());
+      // Camera already produced a contextual interpretation; route it through
+      // the home Common merger so it shows alongside the captured P0.
+      if (result.contextual && result.contextual.toLowerCase() !== literal.toLowerCase()) {
+        mergeContextualSuggestion({
+          id: generateId(),
+          text: result.contextual,
+          itemType: 'common',
+          rank: 0,
+        });
+      }
+    } catch (err) {
+      setIsCameraProcessing(false);
+      const msg = (err as Error).message ?? 'Camera error';
+      if (__DEV__) console.error('[home] Camera error:', msg);
+      const { Alert } = require('react-native');
+      Alert.alert('Camera unavailable', msg);
     }
-  }, [keyboardText, handleCardTap]);
+  }, [isCameraProcessing, mergeContextualSuggestion]);
+
+  // Dispatcher for InputCarousel taps. The carousel just tells us which item
+  // was activated; we run the matching handler. Mic toggles record/stop;
+  // others open their respective overlays/flows.
+  const handleCarouselActivate = useCallback((item: CarouselItem) => {
+    switch (item.id) {
+      case 'mic':
+        handleMicTap();
+        return;
+      case 'pen':
+        setShowHandwriting(true);
+        return;
+      case 'abc':
+        setShowKeyboard(true);
+        return;
+      case 'cam':
+        handleHomeCameraTap();
+        return;
+    }
+  }, [handleMicTap, handleHomeCameraTap]);
 
   // Navigate to compose with a common phrase
   const handleCommonTap = useCallback(
@@ -270,27 +391,6 @@ export default function HomeScreen() {
   // Normalize volume for visual display (-2 to 10 range from expo-speech-recognition)
   // <0 = inaudible, map to 0-1
   const normalizedVolume = Math.max(0, Math.min(1, (volume + 2) / 12));
-
-  // Pulsing animation for mic button when listening
-  const micPulse = useSharedValue(1);
-  useEffect(() => {
-    if (isListening) {
-      micPulse.value = withRepeat(
-        withSequence(
-          withTiming(1.15, { duration: 600 }),
-          withTiming(1, { duration: 600 }),
-        ),
-        -1,
-      );
-    } else {
-      cancelAnimation(micPulse);
-      micPulse.value = withTiming(1, { duration: 200 });
-    }
-  }, [isListening, micPulse]);
-
-  const micAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: micPulse.value }],
-  }));
 
   return (
     <ErrorBoundary>
@@ -336,47 +436,31 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* === Mic Button (centered, prominent) === */}
-        <View style={styles.micSection}>
-          <Animated.View style={micAnimatedStyle}>
-            <Pressable
-              style={[
-                styles.micButton,
-                isListening && styles.micButtonActive,
-              ]}
-              onPress={handleMicTap}
-              onLongPress={() => setContextMenuVisible(true)}
-              delayLongPress={2000}
-            >
-              {isListening ? (
-                <>
-                  {/* Red recording dot */}
-                  <View style={styles.recordingDot} />
-                  <Text style={styles.micButtonText}>Tap to stop</Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.micIcon}>mic</Text>
-                  <Text style={styles.micButtonText}>Tap to speak</Text>
-                </>
-              )}
-            </Pressable>
-          </Animated.View>
-
-          {/* Volume level bar — visible while listening */}
-          {isListening && (
-            <View style={styles.volumeBarContainer}>
-              <View style={styles.volumeBarTrack}>
-                <View
-                  style={[
-                    styles.volumeBarFill,
-                    { width: `${normalizedVolume * 100}%` },
-                  ]}
-                />
+        {/* === Input Carousel — swipe to focus, tap to activate ===
+            Replaces the previous mic-hero + alt-input-row block. Mic is the
+            default focus (idx 0); swipe to pen / abc / cam. Volume bar still
+            appears below the carousel while recording. */}
+        <InputCarousel
+          items={CAROUSEL_ITEMS}
+          focusedIndex={focusedInputIndex}
+          onFocusChange={setFocusedInputIndex}
+          onActivate={handleCarouselActivate}
+          isRecording={isListening}
+          belowSlot={
+            isListening ? (
+              <View style={styles.volumeBarContainer}>
+                <View style={styles.volumeBarTrack}>
+                  <View
+                    style={[
+                      styles.volumeBarFill,
+                      { width: `${normalizedVolume * 100}%` },
+                    ]}
+                  />
+                </View>
               </View>
-            </View>
-          )}
-        </View>
+            ) : null
+          }
+        />
 
         {/* === Transcript Bubble — shows words as heard === */}
         {(isListening || transcript) && !extractedIntent && (
@@ -437,15 +521,11 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Context menu */}
-        <ContextMenu
-          visible={contextMenuVisible}
-          onClose={() => setContextMenuVisible(false)}
-          onKeyboard={() => {
-            setContextMenuVisible(false);
-            setShowKeyboard(true);
-          }}
-          onSave={() => setContextMenuVisible(false)}
+        {/* Handwriting canvas overlay */}
+        <HandwritingOverlay
+          visible={showHandwriting}
+          onAccept={handleHandwritingAccept}
+          onCancel={() => setShowHandwriting(false)}
         />
 
         {/* === Home Sections: Predicted, Common, Saved === */}
@@ -589,51 +669,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // --- Mic button ---
-  micSection: {
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  micButton: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 3,
-    borderColor: '#E07B2E',
-    alignItems: 'center',
-    justifyContent: 'center',
-    // Shadow for depth
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  micButtonActive: {
-    backgroundColor: '#FFF0F0',
-    borderColor: '#E74C3C',
-  },
-  micIcon: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#E07B2E',
-    marginBottom: 4,
-  },
-  micButtonText: {
-    fontSize: 12,
-    color: '#6B6B6B',
-    fontWeight: '500',
-  },
-  recordingDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#E74C3C',
-    marginBottom: 6,
-  },
-
-  // --- Volume bar ---
+  // --- Volume bar (rendered below the input carousel while mic is recording) ---
   volumeBarContainer: {
     marginTop: 12,
     width: 160,

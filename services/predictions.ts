@@ -167,6 +167,55 @@ function fallbackCommonPhrases(timeOfDay: TimeOfDay): ComposeItem[] {
 }
 
 /**
+ * Fetches a single contextual common phrase that incorporates a captured input.
+ * Fires after every input modality (mic/keyboard/camera/handwriting).
+ *
+ * Two context shapes — caller picks one:
+ *   - { timeOfDay } — home flow. Returns a complete sentence appropriate for the moment.
+ *   - { intent, fullPhrase } — compose flow. Returns a short continuation that
+ *     extends the partial phrase.
+ *
+ * No fallback. If Claude is down or can't produce a sensible phrase, returns null
+ * and the caller renders nothing. This is an enhancement, not a guaranteed surface.
+ */
+export async function getSuggestedPhrase(
+  captured: string,
+  ctx: { timeOfDay?: TimeOfDay; intent?: string | null; fullPhrase?: string },
+): Promise<ComposeItem | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('predict', {
+      body: {
+        requestType: 'suggest_phrase',
+        captured,
+        timeOfDay: ctx.timeOfDay,
+        intent: ctx.intent ?? '',
+        fullPhrase: ctx.fullPhrase ?? '',
+      },
+    });
+
+    if (__DEV__) {
+      if (error) console.log('[suggest_phrase] INVOKE ERROR:', error?.message ?? error);
+      if (data?.claudeError) console.log('[suggest_phrase] CLAUDE ERROR:', data.claudeError);
+    }
+
+    const text = data?.phrase?.text;
+    if (error || !text || typeof text !== 'string' || text.trim().length === 0) {
+      return null;
+    }
+
+    return {
+      id: generateId(),
+      text: text.trim(),
+      itemType: 'common',
+      rank: 0,
+    };
+  } catch (err) {
+    if (__DEV__) console.log('[suggest_phrase] error:', err);
+    return null;
+  }
+}
+
+/**
  * Fetches alternative intents using AI prediction.
  * Given the current intent, asks Claude for semantically related alternatives.
  * Falls back to cycling through the curated INTENTS list.

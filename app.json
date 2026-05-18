@@ -30,7 +30,8 @@
           "speechRecognitionPermission": "Dare Vocem uses speech recognition to show your words in real-time as you speak.",
           "androidSpeechServicePackages": []
         }
-      ]
+      ],
+      "./plugins/withIosConfig"
     ],
     "runtimeVersion": {
       "policy": "appVersion"

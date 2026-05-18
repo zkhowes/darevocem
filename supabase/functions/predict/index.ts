@@ -63,6 +63,24 @@ Rules:
 
 JSON format: {"phrases": [{"text": "I need coffee and cream"}, {"text": "What time is my appointment"}]}`;
 
+// suggest_phrase fires after every input modality (mic/keyboard/camera/handwriting).
+// It produces ONE natural common phrase that incorporates the captured input.
+// Two flavors: (1) home flow — only time-of-day context — produces a complete
+// sentence appropriate for the moment. (2) compose flow — intent + partial phrase
+// in flight — produces a contextual continuation that slots into the sentence.
+const SUGGEST_PHRASE_PROMPT = `You help a person with aphasia find one natural phrase to say. They just captured a word or short phrase through speech, typing, camera, or handwriting. Suggest ONE phrase incorporating their captured input.
+
+Two context shapes — handle either:
+- Time of day only (home flow) — return a COMPLETE sentence appropriate for the moment that incorporates the captured input.
+- Intent and partial phrase (compose flow) — return a SHORT continuation (2-6 words) that naturally extends the partial phrase. The continuation must slot in right after the partial phrase. Do not repeat words already in the phrase.
+
+Rules:
+- Return ONLY valid JSON: {"phrase": {"text": "I need coffee with cream"}}
+- The phrase must include the captured word/phrase, or a close grammatical variant ("coffee" → "a coffee", "coffees" — all fine).
+- Warm, casual, conversational. Daily speech with loved ones, not formal writing.
+- Never echo the captured phrase verbatim with no other words around it.
+- If you cannot produce a sensible phrase, return {"phrase": null}.`;
+
 interface ClaudeResult {
   text: string;
   latencyMs: number;
@@ -182,6 +200,49 @@ Generate 5-8 complete phrases this person is most likely to want to say right no
       } catch {
         console.error('[predict] Failed to parse common phrases JSON:', result.text);
         return jsonResponse({ phrases: [], fallback: true, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
+      }
+    }
+
+    // === Contextual suggestion fired after any input accept ===
+    // Body: { requestType: 'suggest_phrase', captured, timeOfDay?, intent?, fullPhrase? }
+    // Returns: { phrase: { text } | null }. Caller treats null as "no suggestion shown".
+    if (requestType === 'suggest_phrase') {
+      const captured = (body.captured ?? '').toString().trim();
+      const composeIntent = (body.intent ?? '').toString().trim();
+      const composeFullPhrase = (body.fullPhrase ?? '').toString().trim();
+
+      if (!captured) {
+        return jsonResponse({ phrase: null });
+      }
+
+      // Compose flow: extending a partial phrase. Home flow: only time of day.
+      const userMessage = composeIntent || composeFullPhrase
+        ? `Compose context.
+Captured input: "${captured}"
+Current intent: ${composeIntent || '(none)'}
+Partial phrase so far: "${composeFullPhrase || composeIntent || captured}"
+
+Return ONE short continuation (2-6 words) that slots in right after the partial phrase and incorporates the captured input.`
+        : `Home context.
+Captured input: "${captured}"
+Time of day: ${timeOfDay ?? 'morning'}
+
+Return ONE complete sentence appropriate for the time of day that incorporates the captured input.`;
+
+      const result = await callClaude(SUGGEST_PHRASE_PROMPT, userMessage, 150, 0.7, 4000);
+      if (result.error) {
+        return jsonResponse({ phrase: null, claudeError: result.error });
+      }
+
+      try {
+        const parsed = JSON.parse(result.text);
+        return jsonResponse({
+          phrase: parsed.phrase ?? null,
+          debug: { promptSent: userMessage, rawResponse: result.text, latencyMs: result.latencyMs, source: 'claude' },
+        });
+      } catch {
+        console.error('[predict] Failed to parse suggest_phrase JSON:', result.text);
+        return jsonResponse({ phrase: null, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
       }
     }
 

@@ -5,10 +5,14 @@ import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
 interface ContextMenuProps {
   visible: boolean;
   onClose: () => void;
-  onKeyboard: () => void;
+  // Input-switching handlers are all optional. The default variant renders
+  // a menu row only for handlers that are provided — compose now passes
+  // none of these because the InputCarousel handles input switching.
+  onKeyboard?: () => void;
   onSave: () => void;
   onMic?: () => void;
   onCamera?: () => void;
+  onHandwriting?: () => void;
   variant?: 'default' | 'phrase';
   onSpeakImperfect?: () => void;
 }
@@ -20,20 +24,27 @@ export function ContextMenu({
   onSave,
   onMic,
   onCamera,
+  onHandwriting,
   variant = 'default',
   onSpeakImperfect,
 }: ContextMenuProps) {
+  // Default variant builds its option list from the provided callbacks only.
+  // The input-switching options (Keyboard / Handwriting / Camera / Microphone)
+  // are filtered out when their handler is omitted — this is the path the
+  // compose screen uses now that the InputCarousel handles input switching.
+  const defaultOptions: { label: string; onPress?: () => void }[] = [];
+  if (onKeyboard) defaultOptions.push({ label: 'Keyboard', onPress: onKeyboard });
+  if (onHandwriting) defaultOptions.push({ label: 'Handwriting', onPress: onHandwriting });
+  if (onCamera) defaultOptions.push({ label: 'Camera', onPress: onCamera });
+  if (onMic) defaultOptions.push({ label: 'Microphone', onPress: onMic });
+  defaultOptions.push({ label: 'Save', onPress: onSave });
+
   const options = variant === 'phrase'
     ? [
         { label: 'Speak even though not quite right', onPress: onSpeakImperfect },
         { label: 'Save phrase', onPress: onSave },
       ]
-    : [
-        { label: 'Keyboard', onPress: onKeyboard },
-        { label: 'Camera', onPress: onCamera },
-        { label: 'Microphone', onPress: onMic },
-        { label: 'Save', onPress: onSave },
-      ];
+    : defaultOptions;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

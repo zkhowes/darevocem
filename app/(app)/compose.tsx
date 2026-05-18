@@ -8,7 +8,11 @@ import { PhraseComposeSection } from '../../components/sections/PhraseComposeSec
 import { ContextMenu } from '../../components/shared/ContextMenu';
 import { ComposeInputOverlay } from '../../components/shared/ComposeInputOverlay';
 import type { InputMode } from '../../components/shared/ComposeInputOverlay';
+import { HandwritingOverlay } from '../../components/shared/HandwritingOverlay';
+import { InputCarousel, type CarouselItem } from '../../components/shared/InputCarousel';
 import { PredictionDebug, logPredictionDebug } from '../../components/shared/PredictionDebug';
+import { fireContextualSuggestionForCompose } from '../../services/contextualSuggestions';
+import { splicePredictionAtP1 } from '../../utils/predictionMerge';
 import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
 import { getTimeOfDay } from '../../services/context';
@@ -27,6 +31,15 @@ import type { ComposeItem } from '../../types';
 
 declare const __DEV__: boolean;
 
+// Input carousel items — same shape as home. Mic at index 0 is the default
+// focus on every mount. Text labels not emoji — see app/(app)/index.tsx.
+const CAROUSEL_ITEMS: CarouselItem[] = [
+  { id: 'mic', glyph: 'mic', label: 'Speak' },
+  { id: 'pen', glyph: 'pen', label: 'Write by hand' },
+  { id: 'abc', glyph: 'abc', label: 'Type' },
+  { id: 'cam', glyph: 'cam', label: 'Identify with camera' },
+];
+
 export default function ComposeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ type?: string; value?: string }>();
@@ -42,6 +55,13 @@ export default function ComposeScreen() {
   // Compose section input mode (mic/keyboard/camera from context menu)
   const [composeInputMode, setComposeInputMode] = useState<InputMode>(null);
   const [composeInputProcessing, setComposeInputProcessing] = useState(false);
+
+  // Handwriting overlay visibility — separate from composeInputMode because
+  // it's a full-screen modal with its own canvas, not an in-place overlay.
+  const [showHandwriting, setShowHandwriting] = useState(false);
+
+  // Input carousel state — mic is the default-focused item, resets on mount.
+  const [focusedInputIndex, setFocusedInputIndex] = useState(0);
 
   // Live speech for compose-level mic (listens for next word, not intent)
   const {
@@ -525,6 +545,38 @@ export default function ComposeScreen() {
     setComposeInputProcessing(false);
   }, []);
 
+  // Insert a contextual common-phrase suggestion at rank 1 (directly under P0).
+  // Splice logic + dedupe lives in utils/predictionMerge.ts so it'\''s testable.
+  // Does NOT push prediction history — this is an async enrichment, not a
+  // user action, so backtrack should never restore a state with this item.
+  const insertContextualAsP1 = useCallback((item: ComposeItem) => {
+    const store = useCompositionStore.getState();
+    const updated = splicePredictionAtP1(store.predictions, item);
+    if (updated !== store.predictions) {
+      store.setPredictions(updated);
+    }
+  }, []);
+
+  // Insert two new items at the top of the prediction list — contextual at rank 0,
+  // literal at rank 1, existing predictions pushed down. Used by the camera flow.
+  const insertTwoAsTopPredictions = useCallback((contextual: string, literal: string) => {
+    const store = useCompositionStore.getState();
+    const items: ComposeItem[] = [];
+    items.push({ id: generateId(), text: contextual, itemType: 'prediction', rank: 0 });
+    // Avoid a duplicate row if the model returned identical strings
+    if (literal && literal.toLowerCase() !== contextual.toLowerCase()) {
+      items.push({ id: generateId(), text: literal, itemType: 'prediction', rank: 1 });
+    }
+    const updated = [
+      ...items,
+      ...store.predictions.map((p, i) => ({ ...p, rank: items.length + i })),
+    ];
+    store.setPredictions(updated);
+    useFocusStore.getState().setComposeIndex(0);
+    setComposeInputMode(null);
+    setComposeInputProcessing(false);
+  }, []);
+
   // Compose mic: start listening for a word
   const handleComposeMicStart = useCallback(async () => {
     setComposeInputMode('mic');
@@ -551,14 +603,27 @@ export default function ComposeScreen() {
     const words = word.split(/\s+/);
     const nextWord = words.length <= 2 ? word : words.slice(-2).join(' ');
     insertAsTopPrediction(nextWord);
-  }, [composeFinalTranscript, composeIsListening, composeInputMode, insertAsTopPrediction]);
+    fireContextualSuggestionForCompose(nextWord, insertContextualAsP1);
+  }, [composeFinalTranscript, composeIsListening, composeInputMode, insertAsTopPrediction, insertContextualAsP1]);
 
   // Compose keyboard: insert typed word
   const handleComposeKeyboardSubmit = useCallback((text: string) => {
     insertAsTopPrediction(text);
-  }, [insertAsTopPrediction]);
+    fireContextualSuggestionForCompose(text, insertContextualAsP1);
+  }, [insertAsTopPrediction, insertContextualAsP1]);
 
-  // Compose camera: take photo, identify, insert result
+  // Compose handwriting accept: insert the recognized word, fire contextual
+  // suggestion. Closes the overlay.
+  const handleComposeHandwritingAccept = useCallback((word: string) => {
+    setShowHandwriting(false);
+    const text = word.trim();
+    if (!text) return;
+    insertAsTopPrediction(text);
+    fireContextualSuggestionForCompose(text, insertContextualAsP1);
+  }, [insertAsTopPrediction, insertContextualAsP1]);
+
+  // Compose camera: take photo, identify against current intent+phrase, insert
+  // both a contextual completion and the literal name as top predictions.
   const handleComposeCameraStart = useCallback(async () => {
     setComposeInputMode('camera');
     setComposeInputProcessing(true);
@@ -571,8 +636,12 @@ export default function ComposeScreen() {
         return;
       }
 
-      const word = await identifyImage(uri);
-      insertAsTopPrediction(word);
+      const store = useCompositionStore.getState();
+      const result = await identifyImage(uri, {
+        intent: store.intent ?? undefined,
+        fullPhrase: store.getPhrase(),
+      });
+      insertTwoAsTopPredictions(result.contextual, result.literal);
     } catch (err) {
       const msg = (err as Error).message ?? 'Camera error';
       if (__DEV__) {
@@ -584,7 +653,31 @@ export default function ComposeScreen() {
       const { Alert } = require('react-native');
       Alert.alert('Camera unavailable', msg);
     }
-  }, [insertAsTopPrediction]);
+  }, [insertTwoAsTopPredictions]);
+
+  // Dispatcher for the always-visible InputCarousel at the top of compose.
+  // Replaces the long-press → context menu flow for input switching. Mic
+  // toggles record/stop based on current listening state.
+  const handleCarouselActivate = useCallback((item: CarouselItem) => {
+    switch (item.id) {
+      case 'mic':
+        if (composeIsListening) {
+          composeStopListening();
+        } else {
+          handleComposeMicStart();
+        }
+        return;
+      case 'pen':
+        setShowHandwriting(true);
+        return;
+      case 'abc':
+        setComposeInputMode('keyboard');
+        return;
+      case 'cam':
+        handleComposeCameraStart();
+        return;
+    }
+  }, [composeIsListening, composeStopListening, handleComposeMicStart, handleComposeCameraStart]);
 
   // Dismiss compose input overlay
   const handleComposeInputDismiss = useCallback(() => {
@@ -609,52 +702,65 @@ export default function ComposeScreen() {
         <Text style={styles.closeText}>X</Text>
       </Pressable>
 
+      {/* ContextMenu (long-press on phrase bar) is now Save-only — the input-
+          switching options moved into the always-visible InputCarousel above. */}
       <ContextMenu
         visible={contextMenuVisible}
         onClose={() => setContextMenuVisible(false)}
-        onKeyboard={() => {
-          setContextMenuVisible(false);
-          setComposeInputMode('keyboard');
-        }}
-        onMic={() => {
-          setContextMenuVisible(false);
-          handleComposeMicStart();
-        }}
-        onCamera={() => {
-          setContextMenuVisible(false);
-          handleComposeCameraStart();
-        }}
         onSave={handlePhraseSave}
+      />
+
+      {/* Handwriting canvas overlay — full-screen modal. Pass current intent
+          and partial phrase so drawing-mode interpretation can produce a
+          context-aware completion. */}
+      <HandwritingOverlay
+        visible={showHandwriting}
+        onAccept={handleComposeHandwritingAccept}
+        onCancel={() => setShowHandwriting(false)}
+        composeContext={{
+          intent: useCompositionStore.getState().intent,
+          fullPhrase: useCompositionStore.getState().getPhrase(),
+        }}
       />
 
       <SectionLayout
         headerContent={
-          composeMode === 'phrase' ? (
-            // In phrase mode the phrase bar already shows the full text and
-            // there's no intent to cycle. Render a minimal label only.
-            <View style={styles.phraseModeHeader}>
-              <Text style={styles.phraseModeLabel}>
-                {phraseSource === 'saved' ? 'SAVED' : 'COMMON'}
-              </Text>
-            </View>
-          ) : (
-            <IntentSection
-              onNavigateHome={handleNavigateHome}
-              timeOfDay={getTimeOfDay()}
-              initialIntent={intent ?? undefined}
-              onIntentChanged={handleIntentChanged}
-              onMicPress={handleMicPress}
-              isMicActive={isMicActive}
-              voiceTranscript={voiceTranscript}
-              onContextAction={(action) => {
-                if (action === 'record') {
-                  handleMicPress();
-                } else if (action === 'type') {
-                  setContextMenuVisible(true);
-                }
-              }}
+          <>
+            {/* Intent on top so it'\''s always anchored and visible while the
+                user composes. Below it the input carousel; below that the
+                predictions. */}
+            {composeMode === 'phrase' ? (
+              // In phrase mode the phrase bar already shows the full text and
+              // there's no intent to cycle. Render a minimal label only.
+              <View style={styles.phraseModeHeader}>
+                <Text style={styles.phraseModeLabel}>
+                  {phraseSource === 'saved' ? 'SAVED' : 'COMMON'}
+                </Text>
+              </View>
+            ) : (
+              <IntentSection
+                onNavigateHome={handleNavigateHome}
+                timeOfDay={getTimeOfDay()}
+                initialIntent={intent ?? undefined}
+                onIntentChanged={handleIntentChanged}
+                voiceTranscript={voiceTranscript}
+                onContextAction={(action) => {
+                  if (action === 'type') {
+                    setContextMenuVisible(true);
+                  }
+                }}
+              />
+            )}
+            {/* Always-visible input carousel. Save and other ContextMenu
+                actions still available via long-press on the phrase bar. */}
+            <InputCarousel
+              items={CAROUSEL_ITEMS}
+              focusedIndex={focusedInputIndex}
+              onFocusChange={setFocusedInputIndex}
+              onActivate={handleCarouselActivate}
+              isRecording={composeIsListening}
             />
-          )
+          </>
         }
         itemsContent={
           composeInputMode ? (

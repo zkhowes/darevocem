@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { setAudioModeAsync } from 'expo-audio';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAuthStore } from '../stores/auth';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { TIMING } from '../constants/config';
@@ -61,12 +62,18 @@ export default function RootLayout() {
   }
 
   return (
-    <ErrorBoundary>
-      <Slot />
-    </ErrorBoundary>
+    // GestureHandlerRootView must wrap every screen — react-native-gesture-handler
+    // requires it for any GestureDetector to receive events. Putting it at the
+    // root means individual screens don't need their own wrapper.
+    <GestureHandlerRootView style={styles.root}>
+      <ErrorBoundary>
+        <Slot />
+      </ErrorBoundary>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

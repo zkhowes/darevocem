@@ -359,14 +359,16 @@ export function IntentSection({
 }
 
 const styles = StyleSheet.create({
-  // Mirrors PhraseSection but inverted: colored border on bottom instead of top
+  // Mirrors PhraseSection but inverted: colored border on bottom instead of top.
+  // Reduced height — the input carousel sits below this on compose, so the
+  // intent doesn't need to consume as much vertical real estate.
   container: {
-    minHeight: LAYOUT.headerHeight,
+    minHeight: 56,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 4,
+    borderBottomWidth: 3,
     justifyContent: 'center',
     paddingHorizontal: LAYOUT.screenPadding,
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
   lockedContainer: {
     borderBottomColor: '#999',
@@ -380,7 +382,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   intentText: {
-    fontSize: TYPOGRAPHY.header.size,
+    fontSize: 24,
     fontWeight: TYPOGRAPHY.header.weight,
     color: '#1A1A1A',
     flex: 1,

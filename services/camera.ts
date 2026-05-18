@@ -45,21 +45,29 @@ export async function takePhoto(): Promise<string | null> {
   return result.assets[0].uri;
 }
 
+export interface IdentifyResult {
+  literal: string;       // "dog"
+  contextual: string;    // "to pet the dog"
+  alternatives: string[];
+}
+
 /**
  * Send a photo to the /identify edge function for object recognition.
- * Returns a short description of what's in the image (e.g., "dog", "coffee cup").
+ * Returns both a literal name ("dog") and a context-aware completion
+ * ("to pet the dog") given the user's current intent and partial phrase.
  */
-export async function identifyImage(imageUri: string): Promise<string> {
-  // Read image as base64
-  const response = await fetch(imageUri);
-  const blob = await response.blob();
-
+export async function identifyImage(
+  imageUri: string,
+  context?: { intent?: string; fullPhrase?: string },
+): Promise<IdentifyResult> {
   const formData = new FormData();
   formData.append('image', {
     uri: imageUri,
     type: 'image/jpeg',
     name: 'photo.jpg',
   } as unknown as Blob);
+  if (context?.intent) formData.append('intent', context.intent);
+  if (context?.fullPhrase) formData.append('fullPhrase', context.fullPhrase);
 
   const session = (await supabase.auth.getSession()).data.session;
   const functionUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/identify`;
@@ -83,6 +91,9 @@ export async function identifyImage(imageUri: string): Promise<string> {
     console.log('[camera] Identify result:', JSON.stringify(data).slice(0, 200));
   }
 
-  // Edge function returns { word: "dog", description: "a golden retriever" }
-  return data.word ?? data.description ?? 'something';
+  const literal = (data.literal ?? data.word ?? 'something').trim();
+  const contextual = (data.contextual ?? data.description ?? literal).trim();
+  const alternatives = Array.isArray(data.alternatives) ? data.alternatives.filter(Boolean) : [];
+
+  return { literal, contextual, alternatives };
 }
