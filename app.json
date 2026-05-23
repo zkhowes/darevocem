@@ -7,7 +7,8 @@
     "platforms": ["ios"],
     "ios": {
       "bundleIdentifier": "fun.zkhowes.darevocem",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "buildNumber": "1"
     },
     "plugins": [
       "expo-router",
