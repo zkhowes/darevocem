@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Alert, Image } from 'react-native';
 import { useAuthStore } from '../stores/auth';
 import { LAYOUT } from '../constants/config';
 
@@ -35,8 +35,12 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Dare Vocem</Text>
-      <Text style={styles.subtitle}>to give voice</Text>
+      <Image
+        source={require('../assets/icon.png')}
+        style={styles.logo}
+        resizeMode="contain"
+        accessibilityLabel="Dare Vocem logo"
+      />
       {error && <Text style={styles.error}>{error}</Text>}
       <Pressable style={styles.appleButton} onPress={() => handleSignIn('apple')}>
         <Text style={styles.appleButtonText}>Sign in with Apple</Text>
@@ -56,19 +60,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     padding: LAYOUT.screenPadding,
   },
-  title: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: COLORS.text,
-    letterSpacing: 4,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 18,
-    fontWeight: '400',
-    color: COLORS.textMuted,
-    fontStyle: 'italic',
-    marginBottom: 48,
+  logo: {
+    width: 280,
+    height: 280,
+    marginBottom: 32,
   },
   error: {
     fontSize: 16,

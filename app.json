@@ -5,6 +5,7 @@
     "version": "1.0.0",
     "scheme": "darevocem",
     "platforms": ["ios"],
+    "icon": "./assets/icon.png",
     "ios": {
       "bundleIdentifier": "fun.zkhowes.darevocem",
       "supportsTablet": false,
