@@ -36,7 +36,7 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <Image
-        source={require('../assets/icon.png')}
+        source={require('../assets/logo-full.png')}
         style={styles.logo}
         resizeMode="contain"
         accessibilityLabel="Dare Vocem logo"
