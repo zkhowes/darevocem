@@ -32,12 +32,12 @@ import type { ComposeItem } from '../../types';
 declare const __DEV__: boolean;
 
 // Input carousel items — same shape as home. Mic at index 0 is the default
-// focus on every mount. Text labels not emoji — see app/(app)/index.tsx.
+// focus on every mount. Ionicons glyphs, no text labels — see app/(app)/index.tsx.
 const CAROUSEL_ITEMS: CarouselItem[] = [
-  { id: 'mic', glyph: 'mic', label: 'Speak' },
-  { id: 'pen', glyph: 'pen', label: 'Write by hand' },
-  { id: 'abc', glyph: 'abc', label: 'Type' },
-  { id: 'cam', glyph: 'cam', label: 'Identify with camera' },
+  { id: 'mic', icon: 'mic', label: 'Speak' },
+  { id: 'pen', icon: 'pencil', label: 'Write by hand' },
+  { id: 'abc', icon: 'text', label: 'Type' },
+  { id: 'cam', icon: 'camera', label: 'Identify with camera' },
 ];
 
 export default function ComposeScreen() {
@@ -83,8 +83,10 @@ export default function ComposeScreen() {
       // Load more common or saved phrases for the compose wheel
       loadPhraseModeItems(store.phraseSource ?? 'common');
     } else {
-      // Predict mode: if predictions weren't pre-fetched, fetch now
-      if (store.intent && store.predictions.length === 0 && !store.isLoading) {
+      // Predict mode: if predictions weren't pre-fetched, fetch now.
+      // Fetch even when intent is empty — an empty fullPhrase still returns
+      // sensible openers/fallbacks, so the wheel is never blank on arrival.
+      if (store.predictions.length === 0 && !store.isLoading) {
         store.setLoading(true);
         const fullPhrase = [store.intent, ...store.slots].filter(Boolean).join(' ');
         const timeOfDay = getTimeOfDay();
@@ -643,6 +645,7 @@ export default function ComposeScreen() {
       });
       insertTwoAsTopPredictions(result.contextual, result.literal);
     } catch (err) {
+      const signedOut = (err as Error)?.name === 'NotSignedInError';
       const msg = (err as Error).message ?? 'Camera error';
       if (__DEV__) {
         console.error('[compose] Camera/identify error:', msg);
@@ -651,7 +654,11 @@ export default function ComposeScreen() {
       setComposeInputProcessing(false);
       // Show a user-friendly alert (import is at top of RN)
       const { Alert } = require('react-native');
-      Alert.alert('Camera unavailable', msg);
+      if (signedOut) {
+        Alert.alert('Please sign in again', 'Your session expired. Sign in again to use the camera.');
+      } else {
+        Alert.alert('Camera unavailable', msg);
+      }
     }
   }, [insertTwoAsTopPredictions]);
 

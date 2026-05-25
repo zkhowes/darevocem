@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -25,9 +26,9 @@ import { wrapIndex } from '../../utils/wrapIndex';
 // callbacks fire the existing handlers.
 
 export interface CarouselItem {
-  id: string;       // 'mic' | 'pen' | 'abc' | 'cam' | future ids
-  glyph: string;    // visible character (emoji or short text)
-  label: string;    // accessibility label
+  id: string;                                       // 'mic' | 'pen' | 'abc' | 'cam' | future ids
+  icon: React.ComponentProps<typeof Ionicons>['name']; // Ionicons glyph name
+  label: string;                                    // accessibility label (no visible text — icons are self-descriptive)
 }
 
 interface InputCarouselProps {
@@ -147,7 +148,7 @@ export function InputCarousel({
                 slotOffset={offset}
                 dragOffset={dragOffset}
                 isFocused={isFocused}
-                glyph={item.glyph}
+                icon={item.icon}
                 showRecordingDot={showRecordingDot}
                 onPress={() => handleActivate(idx)}
                 accessibilityLabel={item.label}
@@ -165,7 +166,7 @@ interface CarouselSlotProps {
   slotOffset: number;                                       // -2, -1, 0, 1, 2
   dragOffset: ReturnType<typeof useSharedValue<number>>;    // live drag from gesture
   isFocused: boolean;
-  glyph: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
   showRecordingDot: boolean;
   onPress: () => void;
   accessibilityLabel: string;
@@ -178,7 +179,7 @@ function CarouselSlot({
   slotOffset,
   dragOffset,
   isFocused,
-  glyph,
+  icon,
   showRecordingDot,
   onPress,
   accessibilityLabel,
@@ -236,9 +237,11 @@ function CarouselSlot({
         {showRecordingDot ? (
           <View style={styles.recordingDot} />
         ) : (
-          <Text style={isFocused ? styles.glyphFocused : styles.glyphSide}>
-            {glyph}
-          </Text>
+          <Ionicons
+            name={icon}
+            size={isFocused ? 44 : 24}
+            color={isFocused ? '#E07B2E' : '#6B6B6B'}
+          />
         )}
       </Pressable>
     </Animated.View>
@@ -288,18 +291,6 @@ const styles = StyleSheet.create({
     borderRadius: SIDE_SIZE / 2,
     borderWidth: 2,
     borderColor: '#D0D0D0',
-  },
-  glyphFocused: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#E07B2E',
-    letterSpacing: 0.5,
-  },
-  glyphSide: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#6B6B6B',
-    letterSpacing: 0.5,
   },
   recordingDot: {
     width: 24,

@@ -10,6 +10,11 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const MODEL = 'claude-haiku-4-5-20251001';
 
+// Per-call Claude budget. 8s, not 4s: on a cold function start the Claude call
+// alone can exceed 4s, which aborted to a fallback and made predictions look
+// like they "didn't load" on device. Latency optimization is tracked separately.
+const CLAUDE_BUDGET_MS = 8000;
+
 // Single, focused system prompt. The key insight: Claude sees the FULL sentence
 // being built, not a fragmented intent + slots. It just needs to predict what
 // word(s) come next.
@@ -185,7 +190,7 @@ Day of week: ${new Date().toLocaleDateString('en-US', { weekday: 'long' })}
 
 Generate 5-8 complete phrases this person is most likely to want to say right now.`;
 
-      const result = await callClaude(COMMON_PHRASES_PROMPT, userMessage, 300, 0.7, 4000);
+      const result = await callClaude(COMMON_PHRASES_PROMPT, userMessage, 300, 0.7, CLAUDE_BUDGET_MS);
       if (result.error) {
         return jsonResponse({ phrases: [], fallback: true, claudeError: result.error });
       }
@@ -229,7 +234,7 @@ Time of day: ${timeOfDay ?? 'morning'}
 
 Return ONE complete sentence appropriate for the time of day that incorporates the captured input.`;
 
-      const result = await callClaude(SUGGEST_PHRASE_PROMPT, userMessage, 150, 0.7, 4000);
+      const result = await callClaude(SUGGEST_PHRASE_PROMPT, userMessage, 150, 0.7, CLAUDE_BUDGET_MS);
       if (result.error) {
         return jsonResponse({ phrase: null, claudeError: result.error });
       }
@@ -256,7 +261,7 @@ Examples of sentence starters: "I need", "I want", "Can you", "Please help me", 
 
 Return ONLY valid JSON: {"intent": "I want"}`;
 
-      const result = await callClaude(SYSTEM_PROMPT, userMessage, 100, 0.8, 4000);
+      const result = await callClaude(SYSTEM_PROMPT, userMessage, 100, 0.8, CLAUDE_BUDGET_MS);
       if (result.error) {
         return jsonResponse({ intent: null, claudeError: result.error });
       }
@@ -288,7 +293,7 @@ Also avoid these (already on screen or previously rejected): ${avoidList.join(',
 
 Suggest 5 alternatives related to "${targetItem}" that naturally continue this sentence.`;
 
-      const result = await callClaude(REFINE_SYSTEM_PROMPT, userMessage, 400, 0.8, 4000);
+      const result = await callClaude(REFINE_SYSTEM_PROMPT, userMessage, 400, 0.8, CLAUDE_BUDGET_MS);
       if (result.error) {
         return jsonResponse({ predictions: [], fallback: true, claudeError: result.error });
       }
@@ -319,7 +324,7 @@ Rerank and suggest 5 predictions that incorporate this hint.
 The descriptor word "${voiceDescriptor}" or the closest concrete match should be the FIRST prediction.
 The remaining predictions should be related to the hint while still being natural continuations of the sentence.`;
 
-      const result = await callClaude(SYSTEM_PROMPT, userMessage, 400, 0.7, 4000);
+      const result = await callClaude(SYSTEM_PROMPT, userMessage, 400, 0.7, CLAUDE_BUDGET_MS);
       if (result.error) {
         return jsonResponse({ predictions: [], fallback: true, claudeError: result.error });
       }
@@ -343,7 +348,7 @@ The remaining predictions should be related to the hint while still being natura
 
 Return ONLY valid JSON: {"modifiers": ["and", "or", "with"]}`;
 
-      const result = await callClaude(SYSTEM_PROMPT, userMessage, 100, 0.5, 4000);
+      const result = await callClaude(SYSTEM_PROMPT, userMessage, 100, 0.5, CLAUDE_BUDGET_MS);
       if (result.error) {
         return jsonResponse({ modifiers: [], claudeError: result.error });
       }
@@ -394,7 +399,7 @@ What word or short phrase comes next?${patternsStr}${avoidStr}`;
 
     // max_tokens=200: 3 predictions with wordType fit comfortably in ~120 tokens.
     // Output size is what dominates Haiku latency, so this is a real speed win.
-    const result = await callClaude(SYSTEM_PROMPT, userMessage, 200, 0.7, 4000);
+    const result = await callClaude(SYSTEM_PROMPT, userMessage, 200, 0.7, CLAUDE_BUDGET_MS);
     if (result.error) {
       return jsonResponse({ predictions: [], fallback: true, claudeError: result.error });
     }

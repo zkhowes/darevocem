@@ -163,7 +163,10 @@ export function HandwritingOverlay({
     } catch (err) {
       clearTimeout(safetyTimeout);
       if (__DEV__) console.log('[handwriting] accept error:', err);
-      setHint("couldn't read — try again");
+      // Distinguish "signed out" from "unreadable" so the user knows it's an
+      // auth problem, not their handwriting.
+      const signedOut = (err as Error)?.name === 'NotSignedInError';
+      setHint(signedOut ? 'Please sign in again' : "couldn't read — try again");
       setIsRecognizing(false);
     }
   }, [activeStroke, canvasRef, composeContext, drawingMode, isRecognizing, onAccept, strokes.length]);

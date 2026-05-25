@@ -7,13 +7,16 @@ import {
   Pressable,
   ScrollView,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ErrorBoundary } from '../../components/shared/ErrorBoundary';
 import { MicDebugOverlay } from '../../components/shared/MicDebugOverlay';
 import { HandwritingOverlay } from '../../components/shared/HandwritingOverlay';
 import { InputCarousel, type CarouselItem } from '../../components/shared/InputCarousel';
+import { TipCard } from '../../components/home/TipCard';
+import { HOME_TIPS, type Tip } from '../../constants/tips';
+import { stopSpeaking } from '../../services/tts';
 import { useCompositionStore } from '../../stores/composition';
 import { getTimeOfDay } from '../../services/context';
 import { getPredictions, getCommonPhrases } from '../../services/predictions';
@@ -28,20 +31,22 @@ import { LAYOUT } from '../../constants/config';
 import { supabase } from '../../services/supabase';
 import type { TranscriptionResult, ComposeItem, SavedPhrase } from '../../types';
 
-const INTRO_SEEN_KEY = 'darevocem_intro_phrase_seen';
+// Counter persisted across launches so each app load shows a different tip,
+// cycling through HOME_TIPS (plus the profile intro phrase slot).
+const TIP_ROTATION_KEY = 'darevocem_tip_rotation_index';
 
 // Max prediction cards shown on home (3 normally, 4 if speech/keyboard produced P0)
 const MAX_PREDICTIONS = 3;
 
 // Input carousel items. Order matters: mic at index 0 is the default focus on
-// every screen mount. Text labels (not emoji) because emoji rendering is
-// unreliable across simulator/device fonts at the focused-item size — labels
-// also match the rest of the project's visual vocabulary.
+// every screen mount. Ionicons glyphs — self-descriptive, so no text label is
+// rendered (label is accessibility-only). Vector icons render consistently
+// across simulator/device, unlike the emoji we previously avoided.
 const CAROUSEL_ITEMS: CarouselItem[] = [
-  { id: 'mic', glyph: 'mic', label: 'Speak' },
-  { id: 'pen', glyph: 'pen', label: 'Write by hand' },
-  { id: 'abc', glyph: 'abc', label: 'Type' },
-  { id: 'cam', glyph: 'cam', label: 'Identify with camera' },
+  { id: 'mic', icon: 'mic', label: 'Speak' },
+  { id: 'pen', icon: 'pencil', label: 'Write by hand' },
+  { id: 'abc', icon: 'text', label: 'Type' },
+  { id: 'cam', icon: 'camera', label: 'Identify with camera' },
 ];
 
 declare const __DEV__: boolean;
@@ -52,7 +57,9 @@ export default function HomeScreen() {
   const [keyboardText, setKeyboardText] = useState('');
   const keyboardRef = useRef<TextInput>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [introPhrase, setIntroPhrase] = useState<string | null>(null);
+  // The rotating home tip shown this launch. `hint` is optional (used for the
+  // intro-phrase slot). null once dismissed or when navigating away.
+  const [tip, setTip] = useState<(Tip & { hint?: string }) | null>(null);
   const [showHandwriting, setShowHandwriting] = useState(false);
 
   // Input carousel — default focus is mic (idx 0). Resets on every mount.
@@ -103,9 +110,16 @@ export default function HomeScreen() {
   // time the user taps one, predictions are usually already cached.
   useEffect(() => {
     const timeOfDay = getTimeOfDay();
-    getCommonPhrases(timeOfDay).then((items) => {
-      setCommonPhrases(items.slice(0, 3));
-    });
+    getCommonPhrases(timeOfDay)
+      .then((items) => {
+        setCommonPhrases(items.slice(0, 3));
+      })
+      .catch((err) => {
+        // getCommonPhrases already falls back to curated phrases internally,
+        // but guard the .then chain so an unexpected throw never leaves the
+        // Common section silently empty.
+        if (__DEV__) console.log('[home] common phrases load failed:', err);
+      });
 
     supabase
       .from('saved_phrases')
@@ -123,26 +137,71 @@ export default function HomeScreen() {
     }
   }, [predictionCards]);
 
-  // Intro phrase — shown once after onboarding
+  // Rotating tip — a different one each app load. The rotation cycles through
+  // HOME_TIPS plus one extra "slot" for the user's profile-derived aphasia
+  // introduction phrase (so it still resurfaces periodically). The user finds
+  // reading hard, so TipCard has a speak icon (system voice).
   useEffect(() => {
-    AsyncStorage.getItem(INTRO_SEEN_KEY).then((seen) => {
-      if (seen) return;
-      supabase
+    let cancelled = false;
+
+    async function pickTip() {
+      const raw = await AsyncStorage.getItem(TIP_ROTATION_KEY);
+      const index = raw ? parseInt(raw, 10) || 0 : 0;
+      // Advance the counter for next launch.
+      AsyncStorage.setItem(TIP_ROTATION_KEY, String(index + 1));
+
+      // The rotation space is HOME_TIPS + 1 (the intro-phrase slot at the end).
+      const slotCount = HOME_TIPS.length + 1;
+      const slot = index % slotCount;
+
+      if (slot < HOME_TIPS.length) {
+        if (!cancelled) setTip(HOME_TIPS[slot]);
+        return;
+      }
+
+      // Intro-phrase slot: pull the user's aphasia introduction from their
+      // saved phrases. If there isn't one (blank profile / not seeded), fall
+      // back to the first how-to tip so the card is never empty.
+      const { data } = await supabase
         .from('saved_phrases')
         .select('text')
         .ilike('category', 'personal')
         .ilike('text', '%aphasia%')
-        .limit(1)
-        .then(({ data }) => {
-          if (data && data.length > 0) setIntroPhrase(data[0].text);
+        .limit(1);
+
+      if (cancelled) return;
+      if (data && data.length > 0) {
+        setTip({
+          title: 'Your introduction',
+          body: data[0].text,
+          hint: 'Find this anytime in Saved',
         });
-    });
+      } else {
+        setTip(HOME_TIPS[0]);
+      }
+    }
+
+    pickTip();
+    return () => { cancelled = true; };
   }, []);
 
-  const dismissIntro = useCallback(() => {
-    AsyncStorage.setItem(INTRO_SEEN_KEY, 'true');
-    setIntroPhrase(null);
+  const dismissTip = useCallback(() => {
+    setTip(null);
   }, []);
+
+  // Dismiss the tip when the user leaves home (e.g. into compose). The card is
+  // a momentary greeting, not persistent chrome — it shouldn't linger behind
+  // navigation and reappear on back. useFocusEffect's cleanup fires on blur
+  // even though expo-router keeps the screen mounted in the stack. Also stop
+  // any in-progress read-aloud so it doesn't keep talking after navigation.
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setTip(null);
+        stopSpeaking();
+      };
+    }, []),
+  );
 
   // Mic button: tap to start/stop
   const handleMicTap = useCallback(async () => {
@@ -340,10 +399,15 @@ export default function HomeScreen() {
       }
     } catch (err) {
       setIsCameraProcessing(false);
+      const signedOut = (err as Error)?.name === 'NotSignedInError';
       const msg = (err as Error).message ?? 'Camera error';
       if (__DEV__) console.error('[home] Camera error:', msg);
       const { Alert } = require('react-native');
-      Alert.alert('Camera unavailable', msg);
+      if (signedOut) {
+        Alert.alert('Please sign in again', 'Your session expired. Sign in again to use the camera.');
+      } else {
+        Alert.alert('Camera unavailable', msg);
+      }
     }
   }, [isCameraProcessing, mergeContextualSuggestion]);
 
@@ -422,18 +486,15 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Intro banner */}
-        {introPhrase && (
-          <View style={styles.introBanner}>
-            <Text style={styles.introBannerLabel}>Your introduction phrase</Text>
-            <Text style={styles.introBannerText}>{introPhrase}</Text>
-            <Text style={styles.introBannerHint}>
-              Find this anytime in Saved &gt; Introductions
-            </Text>
-            <Pressable style={styles.introDismiss} onPress={dismissIntro}>
-              <Text style={styles.introDismissText}>Got it</Text>
-            </Pressable>
-          </View>
+        {/* Rotating tip — different each launch, dismissible, speak icon for
+            read-aloud. Cleared on dismiss or when navigating away. */}
+        {tip && (
+          <TipCard
+            title={tip.title}
+            body={tip.body}
+            hint={tip.hint}
+            onDismiss={dismissTip}
+          />
         )}
 
         {/* === Input Carousel — swipe to focus, tap to activate ===
@@ -592,7 +653,7 @@ export default function HomeScreen() {
                 >
                   <Text style={styles.cardIndex}>C{i + 1}</Text>
                   <View style={styles.cardBody}>
-                    <Text style={styles.cardText} numberOfLines={1}>{phrase.text}</Text>
+                    <Text style={styles.cardText} numberOfLines={2}>{phrase.text}</Text>
                   </View>
                 </Pressable>
               ))}
@@ -620,7 +681,7 @@ export default function HomeScreen() {
                   >
                     <Text style={styles.cardIndex}>S{i + 1}</Text>
                     <View style={styles.cardBody}>
-                      <Text style={styles.cardText} numberOfLines={1}>{displayText}</Text>
+                      <Text style={styles.cardText} numberOfLines={2}>{displayText}</Text>
                     </View>
                   </Pressable>
                 );
@@ -915,44 +976,4 @@ const styles = StyleSheet.create({
   },
 
   // --- Intro banner ---
-  introBanner: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: LAYOUT.screenPadding,
-    marginBottom: 16,
-    borderRadius: 12,
-    padding: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: '#7B68AE',
-  },
-  introBannerLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#7B68AE',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  introBannerText: {
-    fontSize: 17,
-    color: '#1A1A1A',
-    lineHeight: 24,
-    marginBottom: 8,
-  },
-  introBannerHint: {
-    fontSize: 13,
-    color: '#6B6B6B',
-    marginBottom: 12,
-  },
-  introDismiss: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#7B68AE',
-    borderRadius: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-  },
-  introDismissText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '600',
-  },
 });

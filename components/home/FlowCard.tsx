@@ -1,5 +1,5 @@
 import { Pressable, Text, StyleSheet } from 'react-native';
-import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
+import { LAYOUT, TYPOGRAPHY, MAX_FONT_SCALE } from '../../constants/config';
 
 interface FlowCardProps {
   title: string;
@@ -16,9 +16,9 @@ export function FlowCard({ title, subtitle, disabled, onPress }: FlowCardProps) 
       accessibilityRole="button"
       accessibilityLabel={title}
     >
-      <Text style={[styles.title, disabled && styles.disabledText]}>{title}</Text>
+      <Text maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.title, disabled && styles.disabledText]}>{title}</Text>
       {subtitle && (
-        <Text style={[styles.subtitle, disabled && styles.disabledText]}>{subtitle}</Text>
+        <Text maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.subtitle, disabled && styles.disabledText]}>{subtitle}</Text>
       )}
     </Pressable>
   );
@@ -27,9 +27,12 @@ export function FlowCard({ title, subtitle, disabled, onPress }: FlowCardProps) 
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',
-    height: LAYOUT.flowCardHeight,
+    // minHeight (not fixed height) so the card grows with larger Dynamic Type
+    // instead of clipping the title/subtitle.
+    minHeight: LAYOUT.flowCardHeight,
     borderRadius: 12,
     justifyContent: 'center',
+    paddingVertical: 12,
     paddingHorizontal: LAYOUT.screenPadding,
     marginBottom: LAYOUT.itemGap,
     borderWidth: 1,

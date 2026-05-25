@@ -43,6 +43,11 @@ interface AuthState {
   session: Session | null;
   profile: UserProfile | null;
   isLoading: boolean;
+  // True once a profile fetch has completed for the current session (whether
+  // it returned a row or null). The router waits for this before deciding
+  // whether to send the user to onboarding, so a blank profile doesn't flash
+  // the onboarding screen during the async fetch after a fresh login.
+  profileLoaded: boolean;
   _subscription: Subscription | null;
   initialize: () => Promise<void>;
   cleanup: () => void;
@@ -55,6 +60,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   session: null,
   profile: null,
   isLoading: true,
+  profileLoaded: false,
   _subscription: null,
 
   initialize: async () => {
@@ -64,21 +70,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       const profile = await fetchProfile(session.user.id);
-      set({ session, profile, isLoading: false });
+      set({ session, profile, isLoading: false, profileLoaded: true });
     } else {
-      set({ session: null, profile: null, isLoading: false });
+      set({ session: null, profile: null, isLoading: false, profileLoaded: false });
     }
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (session) {
-          // Set session immediately so navigation unblocks, then fetch profile
-          set({ session, isLoading: false });
+          // Set session immediately so navigation unblocks, then fetch profile.
+          // profileLoaded stays false until the fetch settles so the router
+          // doesn't prematurely route a not-yet-loaded profile to onboarding.
+          set({ session, isLoading: false, profileLoaded: false });
           const profile = await fetchProfile(session.user.id);
-          set({ profile });
+          set({ profile, profileLoaded: true });
         } else {
-          set({ session: null, profile: null, isLoading: false });
+          set({ session: null, profile: null, isLoading: false, profileLoaded: false });
         }
       },
     );

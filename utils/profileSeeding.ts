@@ -3,9 +3,9 @@
  * Shared between onboarding (initial seed) and profile editing (update).
  *
  * Variable phrases use label + value columns:
- * - Display shows label above value (e.g. "Name" above "Amanda")
+ * - Display shows label above value (e.g. "Name" above the user's first name)
  * - Auditory preview reads the label only ("Name")
- * - Selection inserts the value only ("Amanda")
+ * - Selection inserts the value only (the user's first name)
  * - text column stores the value for backward compat / full-text search
  *
  * Non-variable phrases use text only (label and value stay NULL).

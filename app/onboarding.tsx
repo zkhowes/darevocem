@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
@@ -17,6 +17,35 @@ function formatDateSpoken(date: Date): string {
   return `${MONTHS[date.getMonth()]} ${date.getDate()} ${date.getFullYear()}`;
 }
 
+/**
+ * Pull first/last name from the OAuth session's user metadata so the user
+ * doesn't retype what Apple/Google already gave us. Apple only sends the name
+ * on the FIRST sign-in (in `full_name`/`name`); Google sends granular
+ * given_name/family_name. We try granular first, then split a full name.
+ */
+function prefillNameFromMetadata(
+  meta: Record<string, unknown> | undefined,
+): { firstName: string; lastName: string } {
+  if (!meta) return { firstName: '', lastName: '' };
+
+  const given = (meta.given_name ?? meta.first_name) as string | undefined;
+  const family = (meta.family_name ?? meta.last_name) as string | undefined;
+  if (given || family) {
+    return { firstName: given?.trim() ?? '', lastName: family?.trim() ?? '' };
+  }
+
+  const full = (meta.full_name ?? meta.name) as string | undefined;
+  if (full?.trim()) {
+    const parts = full.trim().split(/\s+/);
+    return {
+      firstName: parts[0] ?? '',
+      lastName: parts.slice(1).join(' '),
+    };
+  }
+
+  return { firstName: '', lastName: '' };
+}
+
 export default function OnboardingScreen() {
   const router = useRouter();
   const session = useAuthStore((s) => s.session);
@@ -30,6 +59,16 @@ export default function OnboardingScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Prefill name from the login provider's metadata (Apple/Google) on first
+  // mount so the user starts from what we already know, not a blank form.
+  useEffect(() => {
+    const meta = session?.user?.user_metadata as Record<string, unknown> | undefined;
+    const { firstName: f, lastName: l } = prefillNameFromMetadata(meta);
+    if (f) setFirstName((prev) => prev || f);
+    if (l) setLastName((prev) => prev || l);
+    // Run once when the session becomes available.
+  }, [session]);
 
   const handleDateChange = (_event: unknown, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');

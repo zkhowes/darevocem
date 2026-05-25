@@ -31,7 +31,7 @@ A unified feed of color-coded starter cards in a `WheelPicker` component. All ca
 ### Card Types and Colors
 - **Predicted** (orange, `#E07B2E` fill): Time-aware intents from `constants/intents.ts` — "I need", "I want", "I feel", etc. Ordered by time-of-day relevance.
 - **Common** (teal, `#2B7A78` fill): Dynamic items from `common_items` table — today's date, names, medications. `[Today]` resolves at render time.
-- **Saved** (purple, `#7B68AE` fill): Full saved phrases from `saved_phrases` table — "My name is Amanda. I have aphasia."
+- **Saved** (purple, `#7B68AE` fill): Full saved phrases from `saved_phrases` table — "My name is the user. I have aphasia."
 
 ### Layout
 - "DARE VOCEM" title at top (unchanged)
@@ -45,7 +45,7 @@ A unified feed of color-coded starter cards in a `WheelPicker` component. All ca
 - **Left/right swipe**: No-op on home screen (no prediction history to navigate here)
 
 ### Note on Record Flow
-The current "Record" FlowCard is removed from the home screen in this redesign. Record is the highest-impact future feature (listening to Amanda speak and completing her sentences) but is not part of the gesture-based compose flow. It will be re-introduced as a dedicated entry point (e.g., a persistent mic button or a top-level mode toggle) when the Record flow is implemented.
+The current "Record" FlowCard is removed from the home screen in this redesign. Record is the highest-impact future feature (listening to the user speak and completing her sentences) but is not part of the gesture-based compose flow. It will be re-introduced as a dedicated entry point (e.g., a persistent mic button or a top-level mode toggle) when the Record flow is implemented.
 
 ### Data Passed to Compose
 Route params: `{ type: 'prediction' | 'common' | 'saved', value: string, intent?: string }`
@@ -69,7 +69,7 @@ Compose opens with context already active based on what was tapped on home. No c
 ### Entry Behavior by Card Type
 - **Predicted intent** (e.g., "I need"): Intent set in phrase bar, predictions already fetched, ComposeSection focused on first prediction via WheelPicker
 - **Common item** (e.g., "March 24"): Item added as first slot, predictions loaded for what comes next
-- **Saved phrase** (e.g., "My name is Amanda..."): Full phrase loaded in phrase bar, focus on PhraseSection for immediate speak/modify
+- **Saved phrase** (e.g., "My name is the user..."): Full phrase loaded in phrase bar, focus on PhraseSection for immediate speak/modify
 
 ### IntentSection
 Minimized to a small bar at the top showing current intent. Swipe up to expand and change intent if needed. Not the default focus.
@@ -198,10 +198,10 @@ triedPaths: string[][];       // paths that were fully backed out of
 ### Relationship to Undo/Redo
 The existing `undoSlot()`/`redoSlot()` in the PhraseSection and the new `predictionHistory` backtrack in ComposeSection are **separate mechanisms for separate contexts**:
 
-- **PhraseSection left/right swipe** (undo/redo): Operates on the slots array only. Does NOT modify prediction history. Use case: Amanda wants to remove a word from the phrase bar without changing what predictions are showing.
-- **ComposeSection left swipe** (backtrack): Pops prediction history AND removes the corresponding slot. Use case: Amanda wants to go back to the previous set of predictions.
+- **PhraseSection left/right swipe** (undo/redo): Operates on the slots array only. Does NOT modify prediction history. Use case: the user wants to remove a word from the phrase bar without changing what predictions are showing.
+- **ComposeSection left swipe** (backtrack): Pops prediction history AND removes the corresponding slot. Use case: the user wants to go back to the previous set of predictions.
 
-They can coexist because they're triggered from different sections. If Amanda undoes a slot via PhraseSection, the prediction history becomes stale (the last history entry references a slot that's no longer present). This is acceptable — when she swipes back to ComposeSection, the predictions shown are still valid options. If she then right-swipes to advance again, a new history entry is pushed and the stale one is naturally overwritten.
+They can coexist because they're triggered from different sections. If the user undoes a slot via PhraseSection, the prediction history becomes stale (the last history entry references a slot that's no longer present). This is acceptable — when she swipes back to ComposeSection, the predictions shown are still valid options. If she then right-swipes to advance again, a new history entry is pushed and the stale one is naturally overwritten.
 
 ### Files Changed
 - `stores/composition.ts` — add `predictionHistory`, `triedPaths`, advance/backtrack/diverge methods

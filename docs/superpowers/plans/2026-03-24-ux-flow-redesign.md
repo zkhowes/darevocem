@@ -225,11 +225,11 @@ describe('CompositionStore — modifier cycling', () => {
 
 describe('CompositionStore — preloadSavedPhrase', () => {
   it('sets intent to null and slots to full phrase text', () => {
-    useCompositionStore.getState().preloadSavedPhrase('My name is Amanda');
+    useCompositionStore.getState().preloadSavedPhrase('My name is the user');
     const { intent, slots } = useCompositionStore.getState();
     expect(intent).toBeNull();
-    expect(slots).toEqual(['My name is Amanda']);
-    expect(useCompositionStore.getState().getPhrase()).toBe('My name is Amanda');
+    expect(slots).toEqual(['My name is the user']);
+    expect(useCompositionStore.getState().getPhrase()).toBe('My name is the user');
   });
 });
 

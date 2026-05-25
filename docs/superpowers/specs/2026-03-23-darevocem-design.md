@@ -10,24 +10,24 @@
 
 ## 1. Purpose
 
-Amanda Howes has a brain tumor causing aphasia. She knows what she wants to say but can't get the words out. She can start most sentences and finish non-sequiturs, then gets stuck mid-sentence.
+The user has a brain tumor causing aphasia. She knows what she wants to say but can't get the words out. She can start most sentences and finish non-sequiturs, then gets stuck mid-sentence.
 
 Dare Vocem helps her compose and speak complete sentences through a gesture-driven, predictive interface. She navigates intents, predictions, and modifiers through swipes and taps, and the app speaks the composed phrase aloud in her cloned voice.
 
-**The app doesn't replace Amanda's voice — it finishes what she starts.**
+**The app doesn't replace the user's voice — it finishes what she starts.**
 
-This is not a general-purpose AAC platform. This is software for Amanda, built by her husband, to keep her in conversation with the people she loves.
+This is not a general-purpose AAC platform. This is software for the user, built by her husband, to keep her in conversation with the people she loves.
 
 ---
 
-## 2. Amanda's Aphasia Profile
+## 2. the user's Aphasia Profile
 
 All agents working on this project must understand this:
 
-- Amanda can say a LOT today. She can finish non-sequiturs and start most sentences. Then she gets stuck mid-sentence and can't find the next word.
+- the user can say a LOT today. She can finish non-sequiturs and start most sentences. Then she gets stuck mid-sentence and can't find the next word.
 - Her comprehension is fully intact. She knows exactly what she wants to say — the bottleneck is word retrieval and sentence completion, not understanding.
 - Today: the Compose flow helps her build sentences via gesture when she can't get the words out.
-- Near-term (Record flow): the app listens to Amanda speak, detects where she stalls, and offers completions from that point forward. This is the highest-impact feature long-term.
+- Near-term (Record flow): the app listens to the user speak, detects where she stalls, and offers completions from that point forward. This is the highest-impact feature long-term.
 - Long-term: as her condition progresses, she'll rely more on full phrase selection and less on sentence starts. The app must gracefully shift from "sentence completer" to "full phrase speaker" over time.
 
 ---
@@ -36,20 +36,20 @@ All agents working on this project must understand this:
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| Framework | Expo SDK 52 (React Native), iOS primary | Amanda has an iPhone. Expo Go for rapid iteration, dev builds for native features. |
-| Language | TypeScript | Type safety catches bugs before Amanda encounters them. |
-| Auth | Supabase Auth (Google Sign-In now, Apple Sign-In when developer account approved) | Native auth on iOS. Protects Amanda's private data. |
+| Framework | Expo SDK 52 (React Native), iOS primary | the user has an iPhone. Expo Go for rapid iteration, dev builds for native features. |
+| Language | TypeScript | Type safety catches bugs before the user encounters them. |
+| Auth | Supabase Auth (Google Sign-In now, Apple Sign-In when developer account approved) | Native auth on iOS. Protects the user's private data. |
 | Backend | Supabase (Postgres + RLS + Edge Functions) | Auth, database, RLS, and API proxies in one. No separate server to maintain. |
 | API Proxy | Supabase Edge Functions | Claude and ElevenLabs API keys stay server-side. No keys on the device. |
 | AI Prediction | Anthropic Claude API (claude-sonnet-4-20250514) via Edge Function | Contextual slot predictions, refinement, modifier generation. |
-| Text-to-Speech | ElevenLabs API (eleven_flash_v2_5) via Edge Function | Amanda's cloned voice (placeholder voice until clone ready). System TTS as offline fallback. |
+| Text-to-Speech | ElevenLabs API (eleven_flash_v2_5) via Edge Function | the user's cloned voice (placeholder voice until clone ready). System TTS as offline fallback. |
 | State Management | Zustand | Tiny, simple, no boilerplate. |
 | Local Cache | AsyncStorage | Offline access to saved phrases, common items, recent patterns. |
 
 ### Development & Distribution
 
 - **Dev testing:** Expo Go initially (gesture model, UI iteration), graduating to dev builds when Apple Sign-In and audio streaming are needed.
-- **Distribution:** EAS Build -> TestFlight -> Amanda's phone. Push to `main` triggers build.
+- **Distribution:** EAS Build -> TestFlight -> the user's phone. Push to `main` triggers build.
 - **Admin (MVP 1.0-1.1):** Supabase Dashboard for CRUD (phrases, common items) and raw data viewing. No custom admin UI — the husband manages data directly in Supabase's table editor.
 - **Admin (MVP 1.2):** Lightweight Next.js web app on Vercel for session analytics, pattern visualization, and training insights. CRUD stays in Supabase Dashboard.
 
@@ -73,7 +73,7 @@ darevocem/
       compose.tsx                   # Compose screen (Predicted flow)
       common.tsx                    # Common items screen
       saved.tsx                     # Saved phrases screen
-      settings.tsx                  # Amanda's preferences only
+      settings.tsx                  # the user's preferences only
   components/
     gestures/
       useGesture.ts                 # Shared gesture interpreter hook
@@ -174,9 +174,9 @@ Transitions:
 - `phrase` + swipe up -> `compose` (restores previous composeIndex)
 - `intent` + swipe up -> navigate Home
 
-**Compose-to-Phrase transition note:** Amanda reaches the Phrase section by swiping down past the last item in the Compose list. If she has a long list and wants to speak her partial phrase without scrolling through all items, she can use the 2s hold context menu from anywhere in Compose, which includes "Save" — or she can double-tap any item to add it and keep building. The long-press "Speak even though not quite right" is available in the Phrase section once she reaches it. This is a gap-fill not specified in the original PRD.
+**Compose-to-Phrase transition note:** the user reaches the Phrase section by swiping down past the last item in the Compose list. If she has a long list and wants to speak her partial phrase without scrolling through all items, she can use the 2s hold context menu from anywhere in Compose, which includes "Save" — or she can double-tap any item to add it and keep building. The long-press "Speak even though not quite right" is available in the Phrase section once she reaches it. This is a gap-fill not specified in the original PRD.
 
-Focus never moves without a gesture. Amanda is always in control.
+Focus never moves without a gesture. the user is always in control.
 
 ---
 
@@ -281,7 +281,7 @@ Cold-start curated intents (refined based on aphasia communication research):
 Intents are a cold-start scaffold. Over time:
 1. Frequency and time-of-day patterns reshape which intents surface first.
 2. Metadata-driven intents emerge from usage patterns.
-3. Phase 2 (Record flow): Amanda speaks the intent herself, the app detects the stall point, predictions start from there.
+3. Phase 2 (Record flow): the user speaks the intent herself, the app detects the stall point, predictions start from there.
 
 ---
 
@@ -312,7 +312,7 @@ Intents are a cold-start scaffold. Over time:
 | Text primary | #F5F5F0 |
 | Text secondary | #A0A0A0 |
 
-Primary text on all backgrounds exceeds WCAG AAA 7:1 contrast. Secondary text (#6B6B6B on white, #A0A0A0 on dark surface) meets WCAG AA 4.5:1. Secondary text is used only for non-critical labels (P1, C1 prefixes) — never for content Amanda needs to read to make decisions.
+Primary text on all backgrounds exceeds WCAG AAA 7:1 contrast. Secondary text (#6B6B6B on white, #A0A0A0 on dark surface) meets WCAG AA 4.5:1. Secondary text is used only for non-critical labels (P1, C1 prefixes) — never for content the user needs to read to make decisions.
 
 ### Typography
 
@@ -451,16 +451,16 @@ Extensibility: core columns for fields we query/index. `metadata jsonb` on every
 
 ### Row Level Security
 
-- Amanda sees only her own data across all tables.
+- the user sees only her own data across all tables.
 - Admin can read everything, write to saved_phrases and common_items.
-- usage_events and session_traces are insert-only for Amanda, read-only for admin.
+- usage_events and session_traces are insert-only for the user, read-only for admin.
 - No anonymous access.
 
 ### Edge Functions
 
 **POST /predict** — Claude API proxy
 1. Validates JWT
-2. Queries Amanda's patterns from usage_events (top selections for intent + time of day)
+2. Queries the user's patterns from usage_events (top selections for intent + time of day)
 3. Builds Claude prompt with patterns as context
 4. Calls Claude (claude-sonnet-4-20250514, 200 max tokens, 0.7 temp, 2s timeout)
 5. Returns predictions array
@@ -534,10 +534,10 @@ interface SessionStep {
 
 ### How Patterns Feed Predictions
 
-The `/predict` Edge Function includes Amanda's patterns in the Claude prompt:
+The `/predict` Edge Function includes the user's patterns in the Claude prompt:
 
 ```
-Amanda's session patterns:
+the user's session patterns:
 - Average composition time: {avg}
 - For "{intent}" at {timeOfDay}: P1 hit rate {rate}%, top selections: {items}
 - She frequently refines "{item}" -> suggest specific variants
@@ -592,7 +592,7 @@ Offline events stored in AsyncStorage with original timestamps. Queue drains in 
 
 ### Principles
 
-1. Never show an error modal. Amanda doesn't need to know the API timed out.
+1. Never show an error modal. the user doesn't need to know the API timed out.
 2. Never lose the phrase. Composition state persisted to AsyncStorage.
 3. Queue, don't drop. Events synced later.
 4. 2-second timeout on all external calls.
@@ -601,7 +601,7 @@ Offline events stored in AsyncStorage with original timestamps. Queue drains in 
 
 ## 12. Settings (Mobile App)
 
-Amanda's preferences only. No admin functionality on the phone.
+the user's preferences only. No admin functionality on the phone.
 
 | Setting | Control | Default |
 |---------|---------|---------|
@@ -629,7 +629,7 @@ Amanda's preferences only. No admin functionality on the phone.
 - Curated fallback predictions for offline
 - Offline caching + sync queue
 - Error boundaries on every screen
-- Settings: Amanda's preferences only
+- Settings: the user's preferences only
 - Light/dark mode
 
 ### MVP 1.1 — Speech
@@ -644,12 +644,12 @@ Amanda's preferences only. No admin functionality on the phone.
 
 - Apple Sign-In
 - EAS Build + TestFlight pipeline
-- Amanda's cloned voice
+- the user's cloned voice
 - Admin web app (Next.js on Vercel) — analytics only
 
 ### Phase 2 — Voice Input
 
-- Record flow: Amanda speaks, app detects stall, completes from there
+- Record flow: the user speaks, app detects stall, completes from there
 - Context menu microphone functional
 
 ### Phase 3+ — Intelligence
@@ -675,7 +675,7 @@ const getSlotPredictions = async (
 **System prompt:**
 ```
 You predict the next word or phrase in a sentence being composed by
-Amanda, who has aphasia. She selects an intent, then you predict what
+the user, who has aphasia. She selects an intent, then you predict what
 comes next for each slot.
 
 Rules:
@@ -685,7 +685,7 @@ Rules:
   just single words when a phrase is more natural.
 - Consider the intent type for filtering.
 - Be warm, direct, practical. Casual speech.
-- Weight Amanda's personal patterns heavily — her history matters more
+- Weight the user's personal patterns heavily — her history matters more
   than general language probability.
 
 JSON:
@@ -734,8 +734,8 @@ Intentional divergences from the original PRD (`files/PRD.md`), documented for i
 |----------------|---------------|-----|
 | Apple Sign-In + Google Sign-In in MVP | Google only in MVP 1.0; Apple in MVP 1.2 | Apple Developer account pending approval (submitted 2026-03-22) |
 | API keys as EXPO_PUBLIC_ env vars | All API keys server-side in Supabase Edge Function secrets | Security: no keys on the device, ever |
-| Admin panel in Settings screen | Admin CRUD via Supabase Dashboard; analytics via separate Next.js web app (MVP 1.2) | Amanda's phone should be her space only |
-| Settings includes phrase/item editing | Settings is Amanda's preferences only | CRUD moved to admin web/Supabase Dashboard |
+| Admin panel in Settings screen | Admin CRUD via Supabase Dashboard; analytics via separate Next.js web app (MVP 1.2) | the user's phone should be her space only |
+| Settings includes phrase/item editing | Settings is the user's preferences only | CRUD moved to admin web/Supabase Dashboard |
 | Dark theme (wireframes) | Light mode default, dark mode supported | AAC research: light backgrounds reduce eye strain during extended use |
 | Design tokens: intent 20px, list item 20px, phrase 18px | Intent 32px, list item 24px, phrase 28px | AAC best practices: substantially larger type for scanning under cognitive load |
 | Touch targets: 56px min | 72-88px min | AAC standard: 80-100px+ for motor impairment users |
@@ -751,9 +751,9 @@ Answers to technical questions that implementing agents should know:
 
 **Edge Function pattern query performance:** For the first few months, raw queries against usage_events are fine (small dataset). When events exceed ~10,000 rows, add a `pattern_summaries` materialized view that pre-aggregates top selections by intent + time_of_day. The Edge Function queries the summary first, falls back to raw events. This is a future optimization, not MVP.
 
-**Composition state persistence:** Zustand's `persist` middleware writes to AsyncStorage on every state change. This is debounced (500ms) to avoid write contention. On crash recovery, the last persisted state is restored. Worst case: Amanda loses the last 500ms of composition, which is at most one gesture.
+**Composition state persistence:** Zustand's `persist` middleware writes to AsyncStorage on every state change. This is debounced (500ms) to avoid write contention. On crash recovery, the last persisted state is restored. Worst case: the user loses the last 500ms of composition, which is at most one gesture.
 
-**Navigation model:** The `(tabs)/` directory uses Expo Router's file-based routing but does NOT render a visible tab bar. Home, Compose, Common, and Saved are stack-pushed screens. Amanda navigates via flow cards on Home and swipe-up to return. No persistent tab bar — it would waste screen space and create a confusing second navigation model alongside gestures.
+**Navigation model:** The `(tabs)/` directory uses Expo Router's file-based routing but does NOT render a visible tab bar. Home, Compose, Common, and Saved are stack-pushed screens. the user navigates via flow cards on Home and swipe-up to return. No persistent tab bar — it would waste screen space and create a confusing second navigation model alongside gestures.
 
 ---
 
@@ -763,7 +763,7 @@ Answers to technical questions that implementing agents should know:
 2. Medication names? For Common Items.
 3. Other common people? Friends, family, medical team names.
 4. ElevenLabs placeholder voice ID? Need to select one to start with.
-5. Double-tap timing: 300ms default — needs testing with Amanda.
+5. Double-tap timing: 300ms default — needs testing with the user.
 6. Yes/No as persistent nav buttons or as intents? Deferred to implementation.
 7. Saved phrase categories — current list (Introductions, Daily, Social, Medical, Custom) correct?
 8. Common item categories — current list (Dates, Names, Medications, Places) correct?

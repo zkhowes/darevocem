@@ -6,8 +6,10 @@ import { useCompositionStore } from '../../stores/composition';
 import { usePreferencesStore } from '../../stores/preferences';
 import { speakPreview, cancelPreview } from '../../services/auditoryPreview';
 import { getWordTypeColor } from '../../constants/fitzgerald';
-import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
+import { LAYOUT, TYPOGRAPHY, MAX_FONT_SCALE } from '../../constants/config';
 import type { GestureAction, ComposeItem, WheelPickerItem, WordType } from '../../types';
+
+declare const __DEV__: boolean;
 
 interface ComposeSectionProps {
   onAdvance: (item: ComposeItem) => void;
@@ -78,10 +80,19 @@ export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect
 
   const handleGesture = useCallback(
     (gesture: GestureAction, item: WheelPickerItem, index: number) => {
-      if (section !== 'compose') return;
+      if (section !== 'compose') {
+        // Gestures are dropped unless the focus section is 'compose'. If a
+        // double-tap ever fails to append again, this log shows whether focus
+        // had drifted (e.g. to 'phrase'/'intent') at gesture time.
+        if (__DEV__) console.log(`[ComposeSection] gesture ${gesture.type} dropped — section=${section}`);
+        return;
+      }
 
       const prediction = predictions[index];
-      if (!prediction) return;
+      if (!prediction) {
+        if (__DEV__) console.log(`[ComposeSection] gesture ${gesture.type} dropped — no prediction at index ${index} (have ${predictions.length})`);
+        return;
+      }
 
       const logEvent = (action: string) => {
         const state = useCompositionStore.getState();
@@ -159,16 +170,23 @@ export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect
 
       return (
         <View style={styles.itemContent}>
-          <Text style={[
-            styles.itemLabel,
-            isFocused && styles.focusedLabel,
-          ]}>
+          <Text
+            maxFontSizeMultiplier={MAX_FONT_SCALE}
+            style={[
+              styles.itemLabel,
+              isFocused && styles.focusedLabel,
+            ]}
+          >
             {item.itemType === 'prediction' ? 'P' : item.itemType === 'common' ? 'C' : 'S'}
             {(item.metadata?.rank as number ?? 0) + 1}
           </Text>
-          <Text style={[
-            isFocused ? styles.focusedText : styles.itemText,
-          ]}>
+          <Text
+            maxFontSizeMultiplier={MAX_FONT_SCALE}
+            numberOfLines={2}
+            style={[
+              isFocused ? styles.focusedText : styles.itemText,
+            ]}
+          >
             {displayText}
           </Text>
         </View>

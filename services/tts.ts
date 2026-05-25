@@ -3,7 +3,7 @@ import { createAudioPlayer } from 'expo-audio';
 import type { AudioPlayer } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from './supabase';
+import { getEdgeAuthToken } from './edgeAuth';
 import { cancelPreview } from './auditoryPreview';
 import { VOICE } from '../constants/config';
 import type { AudioCacheEntry } from '../types';
@@ -56,6 +56,15 @@ export async function speakPhrase(text: string, options?: SpeakOptions): Promise
     // Fallback to system TTS
     await speakWithSystemTts(text, options);
   }
+}
+
+/**
+ * Speak with the system voice only (expo-speech) — never the cloned voice.
+ * Use for app guidance like home tips, where it's the app talking, not the
+ * user, and we don't want to spend an ElevenLabs call.
+ */
+export async function speakSystem(text: string, options?: SpeakOptions): Promise<void> {
+  return speakPhrase(text, { ...options, useSystemTtsOnly: true });
 }
 
 /**
@@ -114,15 +123,16 @@ async function fetchClonedAudio(text: string): Promise<string> {
   const timeout = setTimeout(() => controller.abort(), VOICE.speakTimeoutMs);
 
   try {
-    // Use raw fetch instead of supabase.functions.invoke for binary response handling
-    const session = (await supabase.auth.getSession()).data.session;
+    // Use raw fetch instead of supabase.functions.invoke for binary response handling.
+    // A NotSignedInError here propagates to the caller, which falls back to system TTS.
+    const token = await getEdgeAuthToken();
     const functionUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/speak`;
 
     const response = await fetch(functionUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session?.access_token ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+        'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({ text }),
       signal: controller.signal,

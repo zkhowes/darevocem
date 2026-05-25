@@ -7,7 +7,10 @@ export const GESTURE = {
 } as const;
 
 export const TIMING = {
-  apiTimeoutMs: 4000,
+  // 8s, not 4s: live cold-start edge calls already hit ~2s, and on cellular
+  // the TLS handshake + function cold start can push past 4s, silently
+  // dropping predictions to fallback/empty. Speed work tracked separately.
+  apiTimeoutMs: 8000,
   focusAnimationMs: 150,
   intentCycleMs: 200,
   itemRejectMs: 200,
@@ -39,6 +42,13 @@ export const TYPOGRAPHY = {
   phraseBar: { size: 28, weight: '600' as const },
   navBar: { size: 18, weight: '400' as const },
 } as const;
+
+// Cap on iOS Dynamic Type scaling. The user runs a larger system font; we
+// honor it (allowFontScaling stays on) but cap the multiplier so very large
+// accessibility sizes don't blow past container bounds. 1.3 = up to 30%
+// larger than our designed sizes. Pair with minHeight (not fixed height) on
+// any text container so it can grow to fit.
+export const MAX_FONT_SCALE = 1.3;
 
 // Simplified mode overrides — bigger targets, fewer items for bad days.
 // Same layout structure, just more generous sizing.

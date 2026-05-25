@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { getEdgeAuthToken } from './edgeAuth';
 
 declare const __DEV__: boolean;
 
@@ -69,13 +69,13 @@ export async function identifyImage(
   if (context?.intent) formData.append('intent', context.intent);
   if (context?.fullPhrase) formData.append('fullPhrase', context.fullPhrase);
 
-  const session = (await supabase.auth.getSession()).data.session;
+  const token = await getEdgeAuthToken();
   const functionUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/identify`;
 
   const result = await fetch(functionUrl, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${session?.access_token ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+      'Authorization': `Bearer ${token}`,
     },
     body: formData,
   });

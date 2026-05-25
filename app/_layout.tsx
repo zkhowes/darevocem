@@ -3,12 +3,21 @@ import { Slot, useRouter, useSegments } from 'expo-router';
 import { setAudioModeAsync } from 'expo-audio';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAuthStore } from '../stores/auth';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { TIMING } from '../constants/config';
+import { View, ActivityIndicator, StyleSheet, Text, TextInput } from 'react-native';
+import { TIMING, MAX_FONT_SCALE } from '../constants/config';
 import { ErrorBoundary } from '../components/shared/ErrorBoundary';
 
+// Honor the user's larger iOS system font, but cap how far it can scale so it
+// never overflows our containers. Set once at the app root via the host
+// component defaults so every Text/TextInput inherits it without per-call
+// props. Components with tight containers also use minHeight + numberOfLines.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+((Text as any).defaultProps ??= {}).maxFontSizeMultiplier = MAX_FONT_SCALE;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+((TextInput as any).defaultProps ??= {}).maxFontSizeMultiplier = MAX_FONT_SCALE;
+
 export default function RootLayout() {
-  const { session, profile, isLoading, initialize, cleanup } = useAuthStore();
+  const { session, profile, isLoading, profileLoaded, initialize, cleanup } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();
 
@@ -44,14 +53,23 @@ export default function RootLayout() {
         router.replace('/login' as never);
       }
     } else if (!inAuthGroup && !inOnboarding) {
-      // Session exists but not in app or onboarding: route appropriately
-      if (profile && !profile.onboardingComplete) {
+      // Wait until the profile fetch has settled before deciding — otherwise a
+      // fresh login (session set, profile still loading) could flash onboarding.
+      if (!profileLoaded) return;
+
+      // Send to onboarding if it's flagged incomplete OR the profile is
+      // effectively empty (no name). The empty check is belt-and-suspenders:
+      // a profile that was blanked but left onboardingComplete=true would
+      // otherwise land on a half-populated home. We treat "no name" as
+      // "needs onboarding".
+      const profileEmpty = !profile || (!profile.firstName && !profile.lastName && !profile.displayName);
+      if (!profile || !profile.onboardingComplete || profileEmpty) {
         router.replace('/onboarding' as never);
       } else {
         router.replace('/(app)' as never);
       }
     }
-  }, [session, profile, isLoading, segments]);
+  }, [session, profile, isLoading, profileLoaded, segments]);
 
   if (isLoading) {
     return (

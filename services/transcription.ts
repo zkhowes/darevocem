@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { getEdgeAuthToken } from './edgeAuth';
 import type { TranscriptionResult } from '../types';
 
 declare const __DEV__: boolean;
@@ -23,14 +23,15 @@ export async function transcribeAudio(fileUri: string): Promise<TranscriptionRes
       name: 'recording.m4a',
     } as unknown as Blob);
 
-    // Get auth token
-    const session = (await supabase.auth.getSession()).data.session;
+    // Get auth token (throws NotSignedInError if no session — caught below,
+    // degrades to an empty transcript so the mic flow simply does nothing).
+    const token = await getEdgeAuthToken();
     const functionUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/transcribe`;
 
     const result = await fetch(functionUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${session?.access_token ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+        'Authorization': `Bearer ${token}`,
       },
       body: formData,
     });
