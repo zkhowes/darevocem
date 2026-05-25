@@ -7,7 +7,7 @@
     "platforms": ["ios"],
     "icon": "./assets/icon.png",
     "ios": {
-      "bundleIdentifier": "fun.zkhowes.darevocem",
+      "bundleIdentifier": "fun.zkhowes.darevocem.app",
       "supportsTablet": false,
       "buildNumber": "1"
     },

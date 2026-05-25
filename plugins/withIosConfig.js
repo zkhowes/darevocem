@@ -16,7 +16,7 @@ const { withInfoPlist } = require('expo/config-plugins');
 
 const REVERSE_DNS_SCHEME = 'fun.zkhowes.darevocem';
 
-function withIosConfig(config) {
+function withInfoPlistPatches(config) {
   return withInfoPlist(config, (cfg) => {
     const plist = cfg.modResults;
 
@@ -60,4 +60,4 @@ function withIosConfig(config) {
   });
 }
 
-module.exports = withIosConfig;
+module.exports = withInfoPlistPatches;
