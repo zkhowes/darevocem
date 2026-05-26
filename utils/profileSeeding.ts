@@ -11,6 +11,8 @@
  * Non-variable phrases use text only (label and value stay NULL).
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js';
+
 export interface ProfileData {
   firstName: string;
   lastName: string;
@@ -20,6 +22,20 @@ export interface ProfileData {
   emergencyContact: string;
   emergencyPhone: string;
 }
+
+// Fixed sort_order per profile-seeded phrase. The home screen shows the first
+// three Personal phrases by sort_order, so Name / DOB / Today lead — the three
+// identity facts the user most needs at hand. The rest follow.
+const SORT_ORDER = {
+  name: 0,
+  dateOfBirth: 1,
+  today: 2,
+  phone: 3,
+  address: 4,
+  emergencyContact: 5,
+  emergencyPhone: 6,
+  intro: 7,
+} as const;
 
 interface SavedPhraseRow {
   user_id: string;
@@ -51,20 +67,9 @@ export function buildSavedPhrasesFromProfile(
   data: ProfileData,
 ): SavedPhraseRow[] {
   const phrases: SavedPhraseRow[] = [];
-  let order = 0;
 
-  // Dynamic today phrase — resolved at display time
-  const todayValue = formatTodaySpoken();
-  phrases.push({
-    user_id: userId,
-    text: todayValue,
-    label: 'Today',
-    value: todayValue,
-    category: 'Personal',
-    sort_order: order++,
-  });
-
-  // Profile-sourced variable phrases
+  // Profile-sourced variable phrases. Each carries a fixed sort_order so the
+  // home screen's top three are deterministic (Name, DOB, Today).
   const fullName = [data.firstName, data.lastName].filter(Boolean).join(' ');
   if (fullName) {
     phrases.push({
@@ -73,7 +78,7 @@ export function buildSavedPhrasesFromProfile(
       label: 'Name',
       value: fullName,
       category: 'Personal',
-      sort_order: order++,
+      sort_order: SORT_ORDER.name,
     });
   }
 
@@ -84,9 +89,20 @@ export function buildSavedPhrasesFromProfile(
       label: 'Date of Birth',
       value: data.dateOfBirth,
       category: 'Personal',
-      sort_order: order++,
+      sort_order: SORT_ORDER.dateOfBirth,
     });
   }
+
+  // Dynamic today phrase — resolved at display time
+  const todayValue = formatTodaySpoken();
+  phrases.push({
+    user_id: userId,
+    text: todayValue,
+    label: 'Today',
+    value: todayValue,
+    category: 'Personal',
+    sort_order: SORT_ORDER.today,
+  });
 
   if (data.phone) {
     phrases.push({
@@ -95,7 +111,7 @@ export function buildSavedPhrasesFromProfile(
       label: 'Phone',
       value: data.phone,
       category: 'Personal',
-      sort_order: order++,
+      sort_order: SORT_ORDER.phone,
     });
   }
 
@@ -106,7 +122,7 @@ export function buildSavedPhrasesFromProfile(
       label: 'Address',
       value: data.homeAddress,
       category: 'Personal',
-      sort_order: order++,
+      sort_order: SORT_ORDER.address,
     });
   }
 
@@ -117,7 +133,7 @@ export function buildSavedPhrasesFromProfile(
       label: 'Emergency Contact',
       value: data.emergencyContact,
       category: 'Personal',
-      sort_order: order++,
+      sort_order: SORT_ORDER.emergencyContact,
     });
   }
 
@@ -128,17 +144,20 @@ export function buildSavedPhrasesFromProfile(
       label: 'Emergency Phone',
       value: data.emergencyPhone,
       category: 'Personal',
-      sort_order: order++,
+      sort_order: SORT_ORDER.emergencyPhone,
     });
   }
 
-  // Aphasia intro — a full phrase, not a variable
+  // Aphasia intro — a full phrase, not a variable. It still carries the 'Intro'
+  // label (matched in PROFILE_PHRASE_LABELS) so the idempotent reseed can delete
+  // it without touching user-saved custom phrases (which have no profile label).
   const nameIntro = fullName ? `My name is ${fullName} and I` : 'I';
   phrases.push({
     user_id: userId,
     text: `${nameIntro} have Aphasia. I understand everything but have trouble finding words. Please be patient with me.`,
+    label: 'Intro',
     category: 'Personal',
-    sort_order: order++,
+    sort_order: SORT_ORDER.intro,
   });
 
   return phrases;
@@ -156,4 +175,37 @@ export const PROFILE_PHRASE_LABELS = [
   'Emergency Contact',
   'Emergency Phone',
   'Today',
+  'Intro',
 ] as const;
+
+/**
+ * Reseed the user's profile-derived saved phrases idempotently.
+ * Shared by onboarding (first run) and the profile editor (updates).
+ *
+ * Deletes ONLY the profile-seeded rows (matched by PROFILE_PHRASE_LABELS) and
+ * reinserts them from current profile data. This is deliberately label-scoped
+ * rather than a full per-user wipe so user-saved custom phrases — which have no
+ * profile label — survive a profile edit.
+ *
+ * The supabase client is passed in (not imported) so this stays unit-testable
+ * with a mock.
+ */
+export async function seedProfilePhrases(
+  client: SupabaseClient,
+  userId: string,
+  data: ProfileData,
+): Promise<void> {
+  // Remove existing profile-seeded rows for this user.
+  const { error: delError } = await client
+    .from('saved_phrases')
+    .delete()
+    .eq('user_id', userId)
+    .in('label', PROFILE_PHRASE_LABELS as unknown as string[]);
+  if (delError) throw delError;
+
+  const rows = buildSavedPhrasesFromProfile(userId, data);
+  if (rows.length === 0) return;
+
+  const { error: insertError } = await client.from('saved_phrases').insert(rows);
+  if (insertError) throw insertError;
+}

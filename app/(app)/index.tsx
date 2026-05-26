@@ -27,6 +27,7 @@ import { useLiveSpeech } from '../../hooks/useLiveSpeech';
 import { takePhoto, identifyImage } from '../../services/camera';
 import { generateId } from '../../types';
 import { INTENTS, DEFAULT_INTENT_BY_TIME } from '../../constants/intents';
+import { openIntent } from '../../utils/openIntent';
 import { LAYOUT } from '../../constants/config';
 import { supabase } from '../../services/supabase';
 import type { TranscriptionResult, ComposeItem, SavedPhrase } from '../../types';
@@ -268,32 +269,10 @@ export default function HomeScreen() {
     prefetchPredictions(matchedIntent, getTimeOfDay());
   }, [finalTranscript, isListening, mergeContextualSuggestion]);
 
-  // Navigate to compose with a prediction card.
-  // Uses the prediction cache — if Home prefetched on mount, predictions are
-  // usually ready by tap time and the compose screen renders without a spinner.
+  // Navigate to compose with a prediction card. Shared with the Predicted L2
+  // screen via openIntent so selection behaves identically in both.
   const handleCardTap = useCallback(
-    (intentText: string) => {
-      const store = useCompositionStore.getState();
-      const timeOfDay = getTimeOfDay();
-
-      // Synchronous cache peek — avoids the loading flash when warm.
-      const cached = getCachedPredictions(intentText, []);
-      store.preload(intentText, cached ?? []);
-      store.setLoading(!cached);
-
-      if (!cached) {
-        getOrFetchPredictions(intentText, timeOfDay).then(({ predictions, source }) => {
-          if (__DEV__) console.log(`[Home] tap "${intentText}" → ${source}`);
-          const s = useCompositionStore.getState();
-          s.setPredictions(predictions);
-          s.setLoading(false);
-        });
-      } else if (__DEV__) {
-        console.log(`[Home] tap "${intentText}" → cache (sync)`);
-      }
-
-      router.push({ pathname: '/(app)/compose', params: { type: 'prediction', value: intentText } } as never);
-    },
+    (intentText: string) => openIntent(router, intentText),
     [router],
   );
 
@@ -399,12 +378,23 @@ export default function HomeScreen() {
       }
     } catch (err) {
       setIsCameraProcessing(false);
-      const signedOut = (err as Error)?.name === 'NotSignedInError';
+      const name = (err as Error)?.name;
+      const signedOut = name === 'NotSignedInError';
+      const permissionDenied = name === 'CameraPermissionDeniedError';
       const msg = (err as Error).message ?? 'Camera error';
       if (__DEV__) console.error('[home] Camera error:', msg);
-      const { Alert } = require('react-native');
+      const { Alert, Linking } = require('react-native');
       if (signedOut) {
         Alert.alert('Please sign in again', 'Your session expired. Sign in again to use the camera.');
+      } else if (permissionDenied) {
+        Alert.alert(
+          'Camera access needed',
+          'Turn on camera access for Dare Vocem in Settings to add things you see to your sentences.',
+          [
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            { text: 'Cancel', style: 'cancel' },
+          ],
+        );
       } else {
         Alert.alert('Camera unavailable', msg);
       }
@@ -596,7 +586,12 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* --- Predicted Section --- */}
-          <Text style={styles.sectionLabel}>PREDICTED</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionLabel}>PREDICTED</Text>
+            <Pressable onPress={() => router.push('/(app)/predicted' as never)}>
+              <Text style={styles.sectionMore}>See all</Text>
+            </Pressable>
+          </View>
 
           {/* P0: Speech-detected intent (when available) */}
           {extractedIntent?.intent && (

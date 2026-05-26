@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SectionLayout } from '../../components/sections/SectionLayout';
@@ -18,11 +18,13 @@ import { useCompositionStore } from '../../stores/composition';
 import { getTimeOfDay } from '../../services/context';
 import { getPredictions, getCommonPhrases } from '../../services/predictions';
 import { getOrFetchPredictions, getCachedPredictions, prefetchPredictions } from '../../services/predictionCache';
-import { speakPhrase } from '../../services/tts';
+import { speakPhrase, speakSystem } from '../../services/tts';
 import { startRecording, stopRecording, cleanupRecording } from '../../services/recording';
 import { transcribeAudio } from '../../services/transcription';
 import { takePhoto, identifyImage } from '../../services/camera';
 import { supabase } from '../../services/supabase';
+import { savePhrase } from '../../utils/savePhrase';
+import { useAuthStore } from '../../stores/auth';
 import { usePreferencesStore } from '../../stores/preferences';
 import { useLiveSpeech } from '../../hooks/useLiveSpeech';
 import { LAYOUT } from '../../constants/config';
@@ -369,25 +371,50 @@ export default function ComposeScreen() {
     }
   }, []);
 
-  // Double-tap on phrase bar: speak the composed phrase (cloned voice with fallback)
+  // Double-tap on phrase bar: speak the composed phrase (cloned voice with
+  // fallback), then reset and return home. The ref blocks a second speak from
+  // firing while one is in flight — otherwise rapid double-taps append to the
+  // still-live phrase and respeak. onDone reliably fires now (see tts.ts).
+  const isSpeakingRef = useRef(false);
   const handlePhraseSpeak = useCallback(async () => {
+    if (isSpeakingRef.current) return;
     const phrase = useCompositionStore.getState().getPhrase();
     if (!phrase) return;
     const useSystemTtsOnly = usePreferencesStore.getState().useSystemTtsOnly;
-    await speakPhrase(phrase, {
-      useSystemTtsOnly,
-      onDone: () => {
-        useCompositionStore.getState().reset();
-        router.back();
-      },
-    });
+    isSpeakingRef.current = true;
+    try {
+      await speakPhrase(phrase, {
+        useSystemTtsOnly,
+        onDone: () => {
+          isSpeakingRef.current = false;
+          useCompositionStore.getState().reset();
+          router.back();
+        },
+      });
+    } catch {
+      isSpeakingRef.current = false;
+    }
   }, [router]);
 
-  const handlePhraseSave = useCallback(() => {
-    // Save current phrase to saved_phrases
+  // Hold the phrase bar (or swipe up) to save the composed phrase. Confirms
+  // both audibly (system voice — reading is hard for the user) and visually.
+  const handlePhraseSave = useCallback(async () => {
     const phrase = useCompositionStore.getState().getPhrase();
     if (!phrase) return;
-    // TODO: wire up save to supabase
+    const { Alert } = require('react-native');
+    const userId = useAuthStore.getState().session?.user?.id;
+    if (!userId) {
+      Alert.alert('Sign in to save', 'Sign in again to save this phrase.');
+      return;
+    }
+    try {
+      await savePhrase(supabase, userId, phrase);
+      speakSystem('Saved');
+      Alert.alert('Saved', `"${phrase.slice(0, 60)}"`);
+    } catch (err) {
+      if (__DEV__) console.error('[compose] Save phrase failed:', (err as Error).message);
+      Alert.alert("Couldn't save", 'Please try again.');
+    }
   }, []);
 
   // Clean up recording on unmount
@@ -645,7 +672,9 @@ export default function ComposeScreen() {
       });
       insertTwoAsTopPredictions(result.contextual, result.literal);
     } catch (err) {
-      const signedOut = (err as Error)?.name === 'NotSignedInError';
+      const name = (err as Error)?.name;
+      const signedOut = name === 'NotSignedInError';
+      const permissionDenied = name === 'CameraPermissionDeniedError';
       const msg = (err as Error).message ?? 'Camera error';
       if (__DEV__) {
         console.error('[compose] Camera/identify error:', msg);
@@ -653,9 +682,18 @@ export default function ComposeScreen() {
       setComposeInputMode(null);
       setComposeInputProcessing(false);
       // Show a user-friendly alert (import is at top of RN)
-      const { Alert } = require('react-native');
+      const { Alert, Linking } = require('react-native');
       if (signedOut) {
         Alert.alert('Please sign in again', 'Your session expired. Sign in again to use the camera.');
+      } else if (permissionDenied) {
+        Alert.alert(
+          'Camera access needed',
+          'Turn on camera access for Dare Vocem in Settings to add things you see to your sentences.',
+          [
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            { text: 'Cancel', style: 'cancel' },
+          ],
+        );
       } else {
         Alert.alert('Camera unavailable', msg);
       }

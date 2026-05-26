@@ -3,6 +3,19 @@ import { getEdgeAuthToken } from './edgeAuth';
 declare const __DEV__: boolean;
 
 /**
+ * Thrown when camera access is permanently denied (the user said no and iOS
+ * won't prompt again). Callers should send the user to Settings rather than
+ * showing a generic "camera unavailable" error — re-requesting in-app is a
+ * silent no-op once iOS has recorded a denial.
+ */
+export class CameraPermissionDeniedError extends Error {
+  constructor() {
+    super('Camera permission denied');
+    this.name = 'CameraPermissionDeniedError';
+  }
+}
+
+/**
  * Launch the camera, take a photo, and return its local URI.
  * Returns null if the user cancels.
  *
@@ -18,13 +31,21 @@ export async function takePhoto(): Promise<string | null> {
     throw new Error('Camera requires a dev build — not available in Expo Go');
   }
 
-  // Guard against native module missing even after import resolves
+  // Check current status, then request ONLY if undetermined. iOS prompts once:
+  // if the user previously denied, requesting again returns 'denied' without a
+  // prompt, so we must detect that and route them to Settings instead.
   try {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    let { status, canAskAgain } = await ImagePicker.getCameraPermissionsAsync();
+    if (status === 'undetermined') {
+      ({ status, canAskAgain } = await ImagePicker.requestCameraPermissionsAsync());
+    }
     if (status !== 'granted') {
-      throw new Error('Camera permission not granted');
+      // Denied — if iOS won't prompt again, the only path is Settings.
+      if (!canAskAgain) throw new CameraPermissionDeniedError();
+      throw new CameraPermissionDeniedError();
     }
   } catch (err) {
+    if (err instanceof CameraPermissionDeniedError) throw err;
     if ((err as Error).message?.includes('native module')) {
       throw new Error('Camera requires a dev build — not available in Expo Go');
     }

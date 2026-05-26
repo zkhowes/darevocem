@@ -66,6 +66,13 @@ export const VOICE = {
   maxCachedPhrases: 20,
   /** Timeout for /speak edge function call */
   speakTimeoutMs: 5000,
+  /**
+   * Safety ceiling for cloned-voice PLAYBACK. If expo-audio never reports
+   * didJustFinish (player error, missed callback), finish the speak after this
+   * long so the screen never sticks waiting on onDone. Generous so a long
+   * phrase is never cut off.
+   */
+  clonedVoiceMaxWaitMs: 30000,
   /** AsyncStorage key prefix for audio cache */
   audioCacheKey: 'darevocem_audio_cache',
 } as const;

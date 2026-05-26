@@ -97,18 +97,36 @@ async function speakWithClonedVoice(text: string, options?: SpeakOptions): Promi
   currentPlayer = player;
 
   return new Promise<void>((resolve) => {
+    // Settle exactly once. onDone MUST fire whether playback finishes normally,
+    // errors out, or never reports finish (safety timeout) — otherwise the
+    // caller's onDone (reset + navigate home) never runs and the screen sticks.
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      try { player.remove(); } catch { /* already removed */ }
+      if (currentPlayer === player) currentPlayer = null;
+      // Clean up temp file (fire-and-forget)
+      try { tempFile.delete(); } catch { /* ignore */ }
+      options?.onDone?.();
+      resolve();
+    };
+
     player.addListener('playbackStatusUpdate', (status) => {
-      if (!status.isLoaded) return;
-      // Check if playback finished (currentTime reached duration)
-      if (status.didJustFinish) {
-        player.remove();
-        currentPlayer = null;
-        // Clean up temp file (fire-and-forget)
-        try { tempFile.delete(); } catch { /* ignore */ }
-        options?.onDone?.();
-        resolve();
+      // A player that unloads after we started playing (error/interruption)
+      // will never emit didJustFinish — treat it as done so we don't hang.
+      if (!status.isLoaded) {
+        finish();
+        return;
       }
+      if (status.didJustFinish) finish();
     });
+
+    // Safety net: never wait forever on a missed finish callback.
+    timer = setTimeout(finish, VOICE.clonedVoiceMaxWaitMs);
+
     player.play();
   });
 }

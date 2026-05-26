@@ -24,19 +24,44 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
   };
 }
 
-/** Fetch profile from Supabase, returning null on error or missing table */
-async function fetchProfile(userId: string): Promise<UserProfile | null> {
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    if (error || !data) return null;
-    return mapProfile(data);
-  } catch {
-    return null;
+/**
+ * Sentinel returned by fetchProfile when the fetch itself FAILED (network /
+ * timeout), as opposed to the row genuinely not existing (which returns null).
+ * Callers must NOT overwrite an existing profile on 'error' — a transient
+ * cold-start failure must never clobber a good profile and bounce a completed
+ * user back to onboarding.
+ */
+type FetchProfileResult = UserProfile | null | 'error';
+
+// PostgREST code for ".single() matched zero rows" — i.e. the row is genuinely
+// absent (new user, no profile yet), not a transient failure.
+const PGRST_NO_ROWS = 'PGRST116';
+
+/**
+ * Fetch profile from Supabase.
+ * - Returns the profile when the row exists.
+ * - Returns null when the row is genuinely absent (new user → onboarding).
+ * - Returns 'error' on a transient fetch failure; retries once first.
+ */
+async function fetchProfile(userId: string): Promise<FetchProfileResult> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      if (data) return mapProfile(data);
+      // Row genuinely absent — not a failure, so don't retry.
+      if (error && (error as { code?: string }).code === PGRST_NO_ROWS) return null;
+      if (!error) return null;
+      // Any other error is treated as transient: fall through to retry/'error'.
+    } catch {
+      // Network/unexpected — fall through to retry/'error'.
+    }
+    if (attempt === 0) await new Promise((r) => setTimeout(r, 600));
   }
+  return 'error';
 }
 
 interface AuthState {
@@ -69,8 +94,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
-      const profile = await fetchProfile(session.user.id);
-      set({ session, profile, isLoading: false, profileLoaded: true });
+      const result = await fetchProfile(session.user.id);
+      if (result === 'error') {
+        // Fetch failed — keep whatever profile we already have (likely none on
+        // first init). Only mark loaded if we have a profile, otherwise leave
+        // it false so the router waits rather than routing to onboarding.
+        const existing = get().profile;
+        set({ session, isLoading: false, profileLoaded: existing != null });
+      } else {
+        set({ session, profile: result, isLoading: false, profileLoaded: true });
+      }
     } else {
       set({ session: null, profile: null, isLoading: false, profileLoaded: false });
     }
@@ -80,11 +113,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       async (_event, session) => {
         if (session) {
           // Set session immediately so navigation unblocks, then fetch profile.
-          // profileLoaded stays false until the fetch settles so the router
-          // doesn't prematurely route a not-yet-loaded profile to onboarding.
-          set({ session, isLoading: false, profileLoaded: false });
-          const profile = await fetchProfile(session.user.id);
-          set({ profile, profileLoaded: true });
+          // Preserve any already-loaded profile so a TOKEN_REFRESHED on cold
+          // start doesn't transiently blank it (and bounce to onboarding).
+          const hadProfile = get().profile != null;
+          set({ session, isLoading: false, profileLoaded: hadProfile });
+          const result = await fetchProfile(session.user.id);
+          if (result === 'error') {
+            // Failed refetch: never clobber a good profile.
+            set({ profileLoaded: hadProfile });
+          } else {
+            set({ profile: result, profileLoaded: true });
+          }
         } else {
           set({ session: null, profile: null, isLoading: false, profileLoaded: false });
         }

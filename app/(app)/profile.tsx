@@ -117,17 +117,10 @@ export default function ProfileScreen() {
 
       if (profileError) throw profileError;
 
-      // Fresh start: delete ALL user's saved phrases, then re-seed from profile
-      const { error: delError } = await supabase
-        .from('saved_phrases')
-        .delete()
-        .eq('user_id', userId);
-      if (delError) {
-        console.warn('Failed to delete saved phrases:', delError.message);
-      }
-
-      // Re-seed with current profile data (variables + aphasia intro only)
-      const { buildSavedPhrasesFromProfile } = await import('../../utils/profileSeeding');
+      // Re-seed profile-derived saved phrases. seedProfilePhrases deletes only
+      // the profile-labeled rows (not a full wipe), so the user's hold-to-save
+      // custom phrases survive a profile edit.
+      const { seedProfilePhrases } = await import('../../utils/profileSeeding');
       const profileData = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -137,17 +130,7 @@ export default function ProfileScreen() {
         emergencyContact: emergencyContact.trim(),
         emergencyPhone: emergencyPhone.trim(),
       };
-      const newPhrases = buildSavedPhrasesFromProfile(userId, profileData);
-
-      if (newPhrases.length > 0) {
-        const { error: phraseError } = await supabase
-          .from('saved_phrases')
-          .insert(newPhrases);
-        if (phraseError) {
-          console.warn('Failed to insert phrases:', phraseError.message);
-          throw phraseError;
-        }
-      }
+      await seedProfilePhrases(supabase, userId, profileData);
 
       // Refresh auth store with updated profile
       useAuthStore.setState({

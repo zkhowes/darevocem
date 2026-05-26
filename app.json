@@ -9,7 +9,7 @@
     "ios": {
       "bundleIdentifier": "fun.zkhowes.darevocem.app",
       "supportsTablet": false,
-      "buildNumber": "2",
+      "buildNumber": "3",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -25,7 +25,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Dare Vocem uses the camera to help you identify objects and add them to your sentences."
+          "cameraPermission": "Dare Vocem uses the camera to help you identify objects and add them to your sentences.",
+          "photosPermission": "Dare Vocem uses your photos to help you identify objects and add them to your sentences."
         }
       ],
       [

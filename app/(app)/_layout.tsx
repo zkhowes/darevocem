@@ -7,6 +7,7 @@ export default function AppLayout() {
       <Stack.Screen name="compose" options={{ gestureEnabled: false }} />
       <Stack.Screen name="common" options={{ gestureEnabled: false }} />
       <Stack.Screen name="saved" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="predicted" options={{ gestureEnabled: false }} />
       <Stack.Screen name="settings" />
       <Stack.Screen name="profile" />
     </Stack>

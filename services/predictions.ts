@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { FALLBACK_PREDICTIONS, FALLBACK_MODIFIERS } from '../constants/fallbacks';
+import { INTENT_STARTERS } from '../constants/intents';
 import { generateId } from '../types';
 import type { ComposeItem, TimeOfDay } from '../types';
 
@@ -164,6 +165,46 @@ function fallbackCommonPhrases(timeOfDay: TimeOfDay): ComposeItem[] {
     itemType: 'common' as const,
     rank: i,
   }));
+}
+
+/**
+ * Fetches AI-generated sentence-STARTERS for the Predicted "See all" screen's
+ * infinite scroll. `excludeList` is the set of starters already on screen so the
+ * model doesn't repeat them across pages.
+ *
+ * Always falls back to the curated INTENT_STARTERS list (offset into it) on any
+ * error or empty response — the screen must never blank (CLAUDE.md rule 4).
+ */
+export async function getIntentStarters(
+  offset: number,
+  limit: number,
+  timeOfDay: TimeOfDay,
+  excludeList: string[] = [],
+): Promise<string[]> {
+  const curatedFallback = () => INTENT_STARTERS.slice(offset, offset + limit);
+  try {
+    const { data, error } = await supabase.functions.invoke('predict', {
+      body: {
+        requestType: 'intent_starters',
+        limit,
+        timeOfDay,
+        excludeList,
+      },
+    });
+
+    if (error || !data || data.fallback || !Array.isArray(data.starters) || data.starters.length === 0) {
+      return curatedFallback();
+    }
+
+    const exclude = new Set(excludeList.map((s) => s.toLowerCase()));
+    const starters = data.starters
+      .map((s: { text?: string }) => (s.text ?? '').trim())
+      .filter((t: string) => t.length > 0 && !exclude.has(t.toLowerCase()));
+
+    return starters.length > 0 ? starters : curatedFallback();
+  } catch {
+    return curatedFallback();
+  }
 }
 
 /**

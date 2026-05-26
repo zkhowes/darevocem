@@ -68,6 +68,22 @@ Rules:
 
 JSON format: {"phrases": [{"text": "I need coffee and cream"}, {"text": "What time is my appointment"}]}`;
 
+// intent_starters powers the Predicted "See all" screen's infinite scroll. It
+// generates SENTENCE STARTERS (not complete sentences) — the openings a person
+// with aphasia begins with before getting stuck. The client pages through these,
+// passing already-shown starters in excludeList so pages don't repeat.
+const INTENT_STARTERS_PROMPT = `You help a person with aphasia begin sentences. They can start a thought but get stuck, so the app offers sentence-STARTERS they can tap to begin, then complete with predictions.
+
+Rules:
+- Return ONLY valid JSON. No markdown, no explanation, no preamble.
+- Generate the requested number of DISTINCT sentence-starters, each 2-4 words.
+- A starter is an OPENING, not a complete sentence (e.g. "I would like", "Can you", "Where is the", "I am feeling") — something the next word naturally continues.
+- Rank by how likely this person is to begin with it at the given time of day, most likely first.
+- Do NOT repeat any starter in the provided exclude list, and do not duplicate within your own list.
+- Warm, practical, conversational — everyday speech with loved ones and caregivers.
+
+JSON format: {"starters": [{"text": "I would like"}, {"text": "Can you"}, {"text": "Where is the"}]}`;
+
 // suggest_phrase fires after every input modality (mic/keyboard/camera/handwriting).
 // It produces ONE natural common phrase that incorporates the captured input.
 // Two flavors: (1) home flow — only time-of-day context — produces a complete
@@ -205,6 +221,41 @@ Generate 5-8 complete phrases this person is most likely to want to say right no
       } catch {
         console.error('[predict] Failed to parse common phrases JSON:', result.text);
         return jsonResponse({ phrases: [], fallback: true, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
+      }
+    }
+
+    // === Intent starters (Predicted "See all" infinite scroll) ===
+    // Body: { requestType: 'intent_starters', limit?, timeOfDay?, excludeList? }
+    // Returns: { starters: [{ text }], fallback }. Client falls back to its
+    // curated list on error, so a failure here is never fatal — it just means
+    // no NEW starters this page.
+    if (requestType === 'intent_starters') {
+      const limit = Math.min(Math.max(Number(body.limit) || 15, 1), 30);
+      const excludeList: string[] = Array.isArray(body.excludeList)
+        ? body.excludeList.filter((s: unknown) => typeof s === 'string').slice(0, 100)
+        : [];
+
+      const userMessage = `Time of day: ${timeOfDay ?? 'morning'}
+Day of week: ${new Date().toLocaleDateString('en-US', { weekday: 'long' })}
+Already shown (exclude these): ${excludeList.length ? excludeList.join(', ') : '(none)'}
+
+Generate ${limit} distinct sentence-starters this person is most likely to begin with right now.`;
+
+      const result = await callClaude(INTENT_STARTERS_PROMPT, userMessage, 400, 0.8, CLAUDE_BUDGET_MS);
+      if (result.error) {
+        return jsonResponse({ starters: [], fallback: true, claudeError: result.error });
+      }
+
+      try {
+        const parsed = JSON.parse(result.text);
+        return jsonResponse({
+          starters: parsed.starters ?? [],
+          fallback: false,
+          debug: { promptSent: userMessage, rawResponse: result.text, latencyMs: result.latencyMs, source: 'claude' },
+        });
+      } catch {
+        console.error('[predict] Failed to parse intent_starters JSON:', result.text);
+        return jsonResponse({ starters: [], fallback: true, claudeError: `JSON parse failed: ${result.text?.slice(0, 100) || '(empty)'}` });
       }
     }
 

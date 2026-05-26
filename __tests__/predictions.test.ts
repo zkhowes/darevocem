@@ -29,8 +29,9 @@ jest.mock('../services/supabase', () => ({
   },
 }));
 
-import { getPredictions, getModifiers } from '../services/predictions';
+import { getPredictions, getModifiers, getIntentStarters } from '../services/predictions';
 import { FALLBACK_PREDICTIONS } from '../constants/fallbacks';
+import { INTENT_STARTERS } from '../constants/intents';
 import { supabase } from '../services/supabase';
 
 // Typed reference to the mock so we can configure return values per test
@@ -336,5 +337,48 @@ describe('REGRESSION — continuation fallbacks for 3+ word phrases', () => {
     const result = await getPredictions('I need coffee', 'morning', allContinuations);
     // Must still return items — the unfiltered continuation list
     expect(result.length).toBeGreaterThan(0);
+  });
+});
+
+describe('getIntentStarters — Predicted "See all" pagination', () => {
+  it('returns AI starters when the edge call succeeds', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      data: { starters: [{ text: 'I would like' }, { text: 'Can you' }], fallback: false },
+      error: null,
+    });
+
+    const result = await getIntentStarters(0, 15, 'morning', []);
+    expect(result).toEqual(['I would like', 'Can you']);
+  });
+
+  it('excludes starters already on screen (case-insensitive)', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      data: { starters: [{ text: 'Can you' }, { text: 'Where is the' }], fallback: false },
+      error: null,
+    });
+
+    const result = await getIntentStarters(10, 15, 'morning', ['can you']);
+    expect(result).toEqual(['Where is the']);
+  });
+
+  it('falls back to the curated list (offset slice) on edge error', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
+
+    const result = await getIntentStarters(0, 5, 'morning', []);
+    expect(result).toEqual(INTENT_STARTERS.slice(0, 5));
+  });
+
+  it('falls back to curated when the call throws', async () => {
+    mockInvoke.mockRejectedValueOnce(new Error('offline'));
+
+    const result = await getIntentStarters(5, 5, 'morning', []);
+    expect(result).toEqual(INTENT_STARTERS.slice(5, 10));
+  });
+
+  it('falls back to curated when AI returns an empty list', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: { starters: [], fallback: false }, error: null });
+
+    const result = await getIntentStarters(0, 5, 'morning', []);
+    expect(result).toEqual(INTENT_STARTERS.slice(0, 5));
   });
 });

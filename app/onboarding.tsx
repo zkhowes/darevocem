@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../stores/auth';
 import { supabase } from '../services/supabase';
 import { LAYOUT } from '../constants/config';
-import { buildSavedPhrasesFromProfile } from '../utils/profileSeeding';
+import { seedProfilePhrases } from '../utils/profileSeeding';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -87,9 +87,14 @@ export default function OnboardingScreen() {
       const userId = session.user.id;
       const displayName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ') || null;
 
-      // Update profile — all fields optional
-      // Try with emergency fields first; fall back if migration 003 not yet applied
+      // Save profile — all fields optional.
+      // Upsert (not update) so the row is written even if the auth-trigger
+      // profile row is missing: a plain .update() on a missing row affects 0
+      // rows WITHOUT an error, silently losing the onboarding data and bouncing
+      // the user back to onboarding on next launch.
+      // Try with emergency fields first; fall back if migration 003 not yet applied.
       const baseFields: Record<string, unknown> = {
+        id: userId,
         first_name: firstName.trim() || null,
         last_name: lastName.trim() || null,
         date_of_birth: dateOfBirth.trim() || null,
@@ -104,13 +109,13 @@ export default function OnboardingScreen() {
         emergency_phone: emergencyPhone.trim() || null,
       };
 
-      let result = await supabase.from('profiles').update(fullFields).eq('id', userId);
+      let result = await supabase.from('profiles').upsert(fullFields, { onConflict: 'id' });
       if (result.error?.message?.includes('emergency_contact') || result.error?.message?.includes('emergency_phone')) {
-        result = await supabase.from('profiles').update(baseFields).eq('id', userId);
+        result = await supabase.from('profiles').upsert(baseFields, { onConflict: 'id' });
       }
       if (result.error) throw result.error;
 
-      // Seed saved phrases from profile data (label + value columns)
+      // Seed saved phrases from profile data (idempotent — safe to re-run).
       const profileData = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -121,14 +126,7 @@ export default function OnboardingScreen() {
         emergencyPhone: emergencyPhone.trim(),
       };
 
-      const savedPhrases = buildSavedPhrasesFromProfile(userId, profileData);
-
-      if (savedPhrases.length > 0) {
-        const { error: phraseError } = await supabase
-          .from('saved_phrases')
-          .insert(savedPhrases);
-        if (phraseError) throw phraseError;
-      }
+      await seedProfilePhrases(supabase, userId, profileData);
 
       // Refresh profile in auth store
       const { data } = await supabase

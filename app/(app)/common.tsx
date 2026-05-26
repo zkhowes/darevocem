@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Pressable, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SectionLayout } from '../../components/sections/SectionLayout';
@@ -7,7 +7,10 @@ import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
 import { usePreferencesStore } from '../../stores/preferences';
 import { speakPreview, cancelPreview } from '../../services/auditoryPreview';
-import { speakPhrase } from '../../services/tts';
+import { speakPhrase, speakSystem } from '../../services/tts';
+import { supabase } from '../../services/supabase';
+import { savePhrase } from '../../utils/savePhrase';
+import { useAuthStore } from '../../stores/auth';
 import { getCommonPhrases } from '../../services/predictions';
 import { getTimeOfDay } from '../../services/context';
 import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
@@ -107,11 +110,46 @@ export default function CommonScreen() {
     } as never);
   }, [pendingPhrase, router]);
 
+  // Speak the composed phrase, then reset and return home — otherwise the
+  // phrase stays live here and further double-taps append + respeak. The ref
+  // guards against a second speak firing mid-playback.
+  const isSpeakingRef = useRef(false);
   const handlePhraseSpeak = useCallback(async () => {
+    if (isSpeakingRef.current) return;
     const phrase = useCompositionStore.getState().getPhrase();
     if (!phrase) return;
     cancelPreview();
-    await speakPhrase(phrase);
+    isSpeakingRef.current = true;
+    try {
+      await speakPhrase(phrase, {
+        onDone: () => {
+          isSpeakingRef.current = false;
+          useCompositionStore.getState().reset();
+          router.back();
+        },
+      });
+    } catch {
+      isSpeakingRef.current = false;
+    }
+  }, [router]);
+
+  // Swipe up on the phrase bar saves the composed phrase (spoken + visual).
+  const handlePhraseSave = useCallback(async () => {
+    const phrase = useCompositionStore.getState().getPhrase();
+    if (!phrase) return;
+    const { Alert } = require('react-native');
+    const userId = useAuthStore.getState().session?.user?.id;
+    if (!userId) {
+      Alert.alert('Sign in to save', 'Sign in again to save this phrase.');
+      return;
+    }
+    try {
+      await savePhrase(supabase, userId, phrase);
+      speakSystem('Saved');
+      Alert.alert('Saved', `"${phrase.slice(0, 60)}"`);
+    } catch {
+      Alert.alert("Couldn't save", 'Please try again.');
+    }
   }, []);
 
   const renderItem = useCallback(
@@ -164,7 +202,7 @@ export default function CommonScreen() {
             />
           )
         }
-        onPhraseSave={() => {}}
+        onPhraseSave={handlePhraseSave}
         onPhraseNavigateUp={() => setSection('compose')}
         onPhraseSpeak={handlePhraseSpeak}
       />
