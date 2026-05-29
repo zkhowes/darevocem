@@ -170,16 +170,20 @@ export function ComposeSection({ onAdvance, onBacktrack, onModifierTap, onSelect
 
       return (
         <View style={styles.itemContent}>
-          <Text
-            maxFontSizeMultiplier={MAX_FONT_SCALE}
-            style={[
-              styles.itemLabel,
-              isFocused && styles.focusedLabel,
-            ]}
-          >
-            {item.itemType === 'prediction' ? 'P' : item.itemType === 'common' ? 'C' : 'S'}
-            {(item.metadata?.rank as number ?? 0) + 1}
-          </Text>
+          {/* P/C/S index label — dev-only. Hidden in production builds so
+              testers don't see internal ranking; still logged in usage_events. */}
+          {__DEV__ && (
+            <Text
+              maxFontSizeMultiplier={MAX_FONT_SCALE}
+              style={[
+                styles.itemLabel,
+                isFocused && styles.focusedLabel,
+              ]}
+            >
+              {item.itemType === 'prediction' ? 'P' : item.itemType === 'common' ? 'C' : 'S'}
+              {(item.metadata?.rank as number ?? 0) + 1}
+            </Text>
+          )}
           <Text
             maxFontSizeMultiplier={MAX_FONT_SCALE}
             numberOfLines={2}

@@ -19,6 +19,7 @@ import { getTimeOfDay } from '../../services/context';
 import { getPredictions, getCommonPhrases } from '../../services/predictions';
 import { getOrFetchPredictions, getCachedPredictions, prefetchPredictions } from '../../services/predictionCache';
 import { speakPhrase, speakSystem } from '../../services/tts';
+import { copyPhrase } from '../../utils/copyPhrase';
 import { startRecording, stopRecording, cleanupRecording } from '../../services/recording';
 import { transcribeAudio } from '../../services/transcription';
 import { takePhoto, identifyImage } from '../../services/camera';
@@ -291,10 +292,12 @@ export default function ComposeScreen() {
     }
   }, []);
 
-  // Double-tap: select the focused word, add it to the phrase, fetch next predictions.
-  // Uses advance() to push prediction history so phrase-bar undo restores predictions.
-  // Speculatively prefetches the *next* slot for the new top prediction, so the
-  // following advance() is often an instant cache hit.
+  // Double-tap: select a word, add it to the phrase IMMEDIATELY, then fetch
+  // next predictions in the background. The phrase bar must update in the same
+  // frame as the tap — the prior await-fetch-first ordering tied phrase update
+  // to model latency, making rapid composition feel broken on slow networks.
+  // advance() pushes current predictions to history so phrase-bar undo still
+  // restores them. Cache hits short-circuit synchronously.
   const handleSelect = useCallback(async (item: ComposeItem) => {
     const state = useCompositionStore.getState();
     const selectedText = state.modifierState?.targetItem === item.text
@@ -306,18 +309,39 @@ export default function ComposeScreen() {
     state.clearTriedItems();
     state.clearVoiceDescriptors();
 
-    const freshState = useCompositionStore.getState();
-    const fullPhrase = [freshState.intent, ...freshState.slots, selectedText].filter(Boolean).join(' ');
+    const fullPhrase = [state.intent, ...state.slots, selectedText].filter(Boolean).join(' ');
     const timeOfDay = getTimeOfDay();
-
-    // Cache-aware fetch — skip spinner on warm hit
     const cached = getCachedPredictions(fullPhrase, []);
-    if (!cached) state.setLoading(true);
+
+    // Warm hit: advance with the cached predictions in one render — no flash.
+    if (cached) {
+      useCompositionStore.getState().advance(selectedText, cached);
+      if (__DEV__) {
+        logPredictionDebug({
+          timestamp: Date.now(),
+          action: `SELECT "${selectedText}" (cache)`,
+          fullPhrase,
+          triedItems: [],
+          predictions: cached.map((p) => p.text),
+          source: 'next',
+        });
+      }
+      const topNext = cached[0];
+      if (topNext) {
+        prefetchPredictions(`${fullPhrase} ${topNext.value ?? topNext.text}`, timeOfDay);
+      }
+      return;
+    }
+
+    // Cold path: phrase updates in this frame (advance with empty predictions);
+    // wheel shows a loading state until predictions arrive, then we replace
+    // predictions in place (NOT a second advance — that would double-push the
+    // history entry and break backtrack).
+    useCompositionStore.getState().advance(selectedText, []);
+    useCompositionStore.getState().setLoading(true);
 
     try {
-      const { predictions: nextPredictions, source } = cached
-        ? { predictions: cached, source: 'cache' as const }
-        : await getOrFetchPredictions(fullPhrase, timeOfDay);
+      const { predictions: nextPredictions, source } = await getOrFetchPredictions(fullPhrase, timeOfDay);
 
       if (__DEV__) {
         logPredictionDebug({
@@ -330,17 +354,11 @@ export default function ComposeScreen() {
         });
       }
 
-      // advance() pushes current predictions to history AND adds the slot,
-      // so phrase-bar swipe-right (undoSlot -> backtrack) restores them.
-      useCompositionStore.getState().advance(selectedText, nextPredictions);
+      useCompositionStore.getState().setPredictions(nextPredictions);
 
-      // Speculatively prefetch the next-next slot. If user picks the top
-      // prediction, the following handleSelect will be an instant cache hit.
-      // If they pick a non-top option, this prefetch is wasted but cheap.
       const topNext = nextPredictions[0];
       if (topNext) {
-        const speculativePhrase = `${fullPhrase} ${topNext.value ?? topNext.text}`;
-        prefetchPredictions(speculativePhrase, timeOfDay);
+        prefetchPredictions(`${fullPhrase} ${topNext.value ?? topNext.text}`, timeOfDay);
       }
     } finally {
       useCompositionStore.getState().setLoading(false);
@@ -415,6 +433,14 @@ export default function ComposeScreen() {
       if (__DEV__) console.error('[compose] Save phrase failed:', (err as Error).message);
       Alert.alert("Couldn't save", 'Please try again.');
     }
+  }, []);
+
+  // Hold the phrase bar -> "Copy" puts the composed phrase on the system
+  // clipboard so the user can paste it into iMessage, notes, or anywhere else.
+  // Same spoken + visual confirmation as Save (shared in utils/copyPhrase).
+  const handlePhraseCopy = useCallback(() => {
+    const phrase = useCompositionStore.getState().getPhrase();
+    if (phrase) copyPhrase(phrase);
   }, []);
 
   // Clean up recording on unmount
@@ -742,10 +768,15 @@ export default function ComposeScreen() {
       {/* Dev-only prediction debug overlay */}
       <PredictionDebug />
 
-      {/* X close button */}
-      <Pressable style={styles.closeButton} onPress={handleClose}>
-        <Text style={styles.closeText}>X</Text>
-      </Pressable>
+      {/* X close button — hidden while an input overlay is open. With the
+          overlay shown the X was misread as "close this overlay" and instead
+          wiped the in-flight phrase by going home. The overlay's own Cancel
+          dismisses the overlay; the X reappears when the overlay closes. */}
+      {!composeInputMode && !showHandwriting && (
+        <Pressable style={styles.closeButton} onPress={handleClose}>
+          <Text style={styles.closeText}>X</Text>
+        </Pressable>
+      )}
 
       {/* ContextMenu (long-press on phrase bar) is now Save-only — the input-
           switching options moved into the always-visible InputCarousel above. */}
@@ -753,6 +784,7 @@ export default function ComposeScreen() {
         visible={contextMenuVisible}
         onClose={() => setContextMenuVisible(false)}
         onSave={handlePhraseSave}
+        onCopy={handlePhraseCopy}
       />
 
       {/* Handwriting canvas overlay — full-screen modal. Pass current intent

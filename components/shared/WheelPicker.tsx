@@ -1,11 +1,12 @@
 import React, { useCallback, useRef } from 'react';
-import { View, StyleSheet, FlatList } from 'react-native';
+import { View, StyleSheet, FlatList, type LayoutChangeEvent } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   withSpring,
   useSharedValue,
 } from 'react-native-reanimated';
 import { GestureArea } from '../gestures/GestureArea';
+import { findRowAtTouchY } from '../../utils/wheelPickerTouchRouting';
 import { LAYOUT, TIMING } from '../../constants/config';
 import type { GestureAction, WheelPickerItem } from '../../types';
 
@@ -19,14 +20,20 @@ interface WheelPickerProps {
 
 // Pure visual component — no gesture handling.
 // All gestures are captured at the list level and routed via focusedIndex.
+// Each row reports its measured y/height to the parent via onLayoutReport so
+// the list-level gesture handler can map a tap's touchY to the tapped row.
 function WheelPickerItemView({
   item,
+  index,
   isFocused,
   renderItem,
+  onLayoutReport,
 }: {
   item: WheelPickerItem;
+  index: number;
   isFocused: boolean;
   renderItem: (item: WheelPickerItem, isFocused: boolean) => React.ReactNode;
+  onLayoutReport: (index: number, layout: { y: number; height: number }) => void;
 }) {
   const scale = useSharedValue(isFocused ? 1 : 0.95);
   const height = useSharedValue(
@@ -48,8 +55,14 @@ function WheelPickerItemView({
     height: height.value,
   }));
 
+  const handleLayout = useCallback((e: LayoutChangeEvent) => {
+    const { y, height: h } = e.nativeEvent.layout;
+    onLayoutReport(index, { y, height: h });
+  }, [index, onLayoutReport]);
+
   return (
     <Animated.View
+      onLayout={handleLayout}
       style={[
         styles.itemContainer,
         isFocused && {
@@ -81,6 +94,15 @@ export function WheelPicker({
   renderItem,
 }: WheelPickerProps) {
   const flatListRef = useRef<FlatList>(null);
+  // Row layout map: each WheelPickerItemView reports its measured y + height
+  // here on mount/resize. The list-level gesture handler uses it to map a
+  // tap's touchY to the row that was actually pressed, so a double-tap on a
+  // non-focused row targets THAT row (not the focused one) — while swipes
+  // and the swipe-anywhere model stay intact.
+  const rowLayoutsRef = useRef<Map<number, { y: number; height: number }>>(new Map());
+  const handleRowLayout = useCallback((index: number, layout: { y: number; height: number }) => {
+    rowLayoutsRef.current.set(index, layout);
+  }, []);
 
   React.useEffect(() => {
     if (flatListRef.current && items.length > 0 && focusedIndex >= 0 && focusedIndex < items.length) {
@@ -93,7 +115,9 @@ export function WheelPicker({
   }, [focusedIndex, items.length]);
 
   // Single gesture handler for the entire list.
-  // Vertical swipes change focus; everything else routes to the focused item.
+  // Vertical swipes change focus; horizontal swipes route to the focused item;
+  // taps/double-taps/long-press route to the row actually under the finger
+  // (falling back to the focused row if touchY can't be mapped).
   const handleListGesture = useCallback((gesture: GestureAction) => {
     if (gesture.type === 'swipe') {
       if (gesture.direction === 'up') {
@@ -114,10 +138,20 @@ export function WheelPicker({
         }
         return;
       }
+      // Horizontal swipe — route to the focused item.
+      if (items[focusedIndex]) {
+        onGesture(gesture, items[focusedIndex], focusedIndex);
+      }
+      return;
     }
-    // Horizontal swipes, taps, double-taps, long-press: route to focused item
-    if (items[focusedIndex]) {
-      onGesture(gesture, items[focusedIndex], focusedIndex);
+
+    // Tap / double-tap / long-press — prefer the row actually touched so
+    // double-tapping P3 selects P3 (not the currently focused P1). Focus
+    // intentionally does NOT shift — swipes still own focus changes.
+    const touchedIndex = findRowAtTouchY(gesture.touchY, rowLayoutsRef.current);
+    const targetIndex = touchedIndex != null && items[touchedIndex] ? touchedIndex : focusedIndex;
+    if (items[targetIndex]) {
+      onGesture(gesture, items[targetIndex], targetIndex);
     }
   }, [focusedIndex, items, onFocusChange, onGesture]);
 
@@ -125,11 +159,13 @@ export function WheelPicker({
     ({ item, index }: { item: WheelPickerItem; index: number }) => (
       <WheelPickerItemView
         item={item}
+        index={index}
         isFocused={index === focusedIndex}
         renderItem={renderItem}
+        onLayoutReport={handleRowLayout}
       />
     ),
-    [focusedIndex, renderItem],
+    [focusedIndex, renderItem, handleRowLayout],
   );
 
   const getItemLayout = useCallback(

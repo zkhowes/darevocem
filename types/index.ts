@@ -4,9 +4,12 @@ export type SwipeDirection = 'up' | 'down' | 'left' | 'right';
 
 export type GestureAction =
   | { type: 'swipe'; direction: SwipeDirection }
-  | { type: 'tap' }
-  | { type: 'double-tap' }
-  | { type: 'long-press' };
+  // touchY is the press location relative to the GestureArea container.
+  // Used by WheelPicker to route a double-tap to the row that was actually
+  // tapped (vs the currently focused row) without losing swipe-anywhere.
+  | { type: 'tap'; touchY?: number }
+  | { type: 'double-tap'; touchY?: number }
+  | { type: 'long-press'; touchY?: number };
 
 export interface GestureConfig {
   swipeThresholdPx: number;

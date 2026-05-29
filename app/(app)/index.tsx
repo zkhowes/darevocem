@@ -599,7 +599,9 @@ export default function HomeScreen() {
               style={[styles.card, styles.cardSpeech]}
               onPress={handleSpeechIntentTap}
             >
-              <Text style={styles.cardIndex}>P0</Text>
+              {/* P0/P1/P2/P3/C#/S# index labels — dev-only so testers don't
+                  see internal ranks. Still recorded in usage_events. */}
+              {__DEV__ && <Text style={styles.cardIndex}>P0</Text>}
               <View style={styles.cardBody}>
                 <Text style={styles.cardTextHighlighted}>
                   {extractedIntent.intent}
@@ -623,7 +625,7 @@ export default function HomeScreen() {
                 style={[styles.card, styles.cardPrediction]}
                 onPress={() => handleCardTap(card.text)}
               >
-                <Text style={styles.cardIndex}>{label}</Text>
+                {__DEV__ && <Text style={styles.cardIndex}>{label}</Text>}
                 <View style={styles.cardBody}>
                   <Text style={styles.cardText}>{card.text}</Text>
                 </View>
@@ -646,7 +648,7 @@ export default function HomeScreen() {
                   style={[styles.card, styles.cardCommon]}
                   onPress={() => handleCommonTap(phrase)}
                 >
-                  <Text style={styles.cardIndex}>C{i + 1}</Text>
+                  {__DEV__ && <Text style={styles.cardIndex}>C{i + 1}</Text>}
                   <View style={styles.cardBody}>
                     <Text style={styles.cardText} numberOfLines={2}>{phrase.text}</Text>
                   </View>
@@ -674,7 +676,7 @@ export default function HomeScreen() {
                     style={[styles.card, styles.cardSaved]}
                     onPress={() => handleSavedTap(phrase)}
                   >
-                    <Text style={styles.cardIndex}>S{i + 1}</Text>
+                    {__DEV__ && <Text style={styles.cardIndex}>S{i + 1}</Text>}
                     <View style={styles.cardBody}>
                       <Text style={styles.cardText} numberOfLines={2}>{displayText}</Text>
                     </View>

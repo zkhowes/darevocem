@@ -10,6 +10,7 @@ interface ContextMenuProps {
   // none of these because the InputCarousel handles input switching.
   onKeyboard?: () => void;
   onSave: () => void;
+  onCopy?: () => void;
   onMic?: () => void;
   onCamera?: () => void;
   onHandwriting?: () => void;
@@ -22,6 +23,7 @@ export function ContextMenu({
   onClose,
   onKeyboard,
   onSave,
+  onCopy,
   onMic,
   onCamera,
   onHandwriting,
@@ -38,13 +40,15 @@ export function ContextMenu({
   if (onCamera) defaultOptions.push({ label: 'Camera', onPress: onCamera });
   if (onMic) defaultOptions.push({ label: 'Microphone', onPress: onMic });
   defaultOptions.push({ label: 'Save', onPress: onSave });
+  if (onCopy) defaultOptions.push({ label: 'Copy', onPress: onCopy });
 
-  const options = variant === 'phrase'
-    ? [
-        { label: 'Speak even though not quite right', onPress: onSpeakImperfect },
-        { label: 'Save phrase', onPress: onSave },
-      ]
-    : defaultOptions;
+  const phraseOptions: { label: string; onPress?: () => void }[] = [
+    { label: 'Speak even though not quite right', onPress: onSpeakImperfect },
+    { label: 'Save phrase', onPress: onSave },
+  ];
+  if (onCopy) phraseOptions.push({ label: 'Copy', onPress: onCopy });
+
+  const options = variant === 'phrase' ? phraseOptions : defaultOptions;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

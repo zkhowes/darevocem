@@ -145,6 +145,10 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
   const tapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPressRef = useRef(false);
+  // Touch start y, relative to the GestureArea View. WheelPicker uses this to
+  // route a double-tap to the row actually tapped (vs the focused row) while
+  // keeping list-level swipes intact.
+  const touchStartYRef = useRef<number>(0);
 
   const clearTimers = useCallback(() => {
     if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
@@ -155,14 +159,17 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
     onStartShouldSetPanResponder: () => config.enabled,
     onMoveShouldSetPanResponder: () => config.enabled,
 
-    onPanResponderGrant: () => {
+    onPanResponderGrant: (evt: GestureResponderEvent) => {
       if (!config.enabled) return;
       isLongPressRef.current = false;
+      touchStartYRef.current = evt.nativeEvent.locationY;
 
-      // Start long press timer
+      // Start long press timer — emit the start y so a hold can target the
+      // pressed row, not the focused one.
+      const touchY = touchStartYRef.current;
       longPressTimeoutRef.current = setTimeout(() => {
         isLongPressRef.current = true;
-        onActionRef.current({ type: 'long-press' });
+        onActionRef.current({ type: 'long-press', touchY });
       }, config.longPressMs);
     },
 
@@ -206,17 +213,18 @@ export function useGesture({ onAction, config: configOverrides }: UseGestureOpti
       }
       const now = Date.now();
       const timeSinceLastTap = now - lastTapRef.current;
+      const touchY = touchStartYRef.current;
 
       if (timeSinceLastTap < config.doubleTapMaxDelayMs) {
         // Double tap
         if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
         lastTapRef.current = 0;
-        onActionRef.current({ type: 'double-tap' });
+        onActionRef.current({ type: 'double-tap', touchY });
       } else {
         // Potential single tap — wait to see if double-tap follows
         lastTapRef.current = now;
         tapTimeoutRef.current = setTimeout(() => {
-          onActionRef.current({ type: 'tap' });
+          onActionRef.current({ type: 'tap', touchY });
           lastTapRef.current = 0;
         }, config.doubleTapMaxDelayMs);
       }

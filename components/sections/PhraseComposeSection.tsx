@@ -1,6 +1,8 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable } from 'react-native';
 import { WheelPicker } from '../shared/WheelPicker';
+
+declare const __DEV__: boolean;
 import { useFocusStore } from '../../stores/focus';
 import { useCompositionStore } from '../../stores/composition';
 import { LAYOUT, TYPOGRAPHY } from '../../constants/config';
@@ -69,10 +71,13 @@ export function PhraseComposeSection({ onPhraseSelect, onSwitchToPredict }: Phra
   const renderItem = useCallback(
     (item: WheelPickerItem, isFocused: boolean) => (
       <View style={styles.itemContent}>
-        <Text style={[styles.itemLabel, isFocused && styles.focusedLabel]}>
-          {item.itemType === 'common' ? 'C' : 'S'}
-          {(item.metadata?.rank as number ?? 0) + 1}
-        </Text>
+        {/* C#/S# index — dev-only. */}
+        {__DEV__ && (
+          <Text style={[styles.itemLabel, isFocused && styles.focusedLabel]}>
+            {item.itemType === 'common' ? 'C' : 'S'}
+            {(item.metadata?.rank as number ?? 0) + 1}
+          </Text>
+        )}
         <Text
           style={isFocused ? styles.focusedText : styles.itemText}
           numberOfLines={3}

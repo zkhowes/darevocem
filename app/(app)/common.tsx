@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Pressable, Modal } from 'react-native';
+
+declare const __DEV__: boolean;
 import { useRouter } from 'expo-router';
 import { SectionLayout } from '../../components/sections/SectionLayout';
 import { WheelPicker } from '../../components/shared/WheelPicker';
@@ -10,6 +12,7 @@ import { speakPreview, cancelPreview } from '../../services/auditoryPreview';
 import { speakPhrase, speakSystem } from '../../services/tts';
 import { supabase } from '../../services/supabase';
 import { savePhrase } from '../../utils/savePhrase';
+import { copyPhrase } from '../../utils/copyPhrase';
 import { useAuthStore } from '../../stores/auth';
 import { getCommonPhrases } from '../../services/predictions';
 import { getTimeOfDay } from '../../services/context';
@@ -31,6 +34,9 @@ export default function CommonScreen() {
   const [loading, setLoading] = useState(true);
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
   const [pendingPhrase, setPendingPhrase] = useState<string | null>(null);
+  // Phrase-bar long-press menu (Save + Copy for the composed phrase). Separate
+  // from the wheel-item menu above, which acts on the long-pressed Common item.
+  const [phraseMenuVisible, setPhraseMenuVisible] = useState(false);
 
   const composeIndex = useFocusStore((s) => s.composeIndex);
   const setComposeIndex = useFocusStore((s) => s.setComposeIndex);
@@ -110,6 +116,16 @@ export default function CommonScreen() {
     } as never);
   }, [pendingPhrase, router]);
 
+  // Long-press wheel item → "Copy": put that Common phrase directly on the
+  // clipboard so the user can send it without composing first.
+  const handleCopyItem = useCallback(() => {
+    setContextMenuVisible(false);
+    if (!pendingPhrase) return;
+    const phrase = pendingPhrase;
+    setPendingPhrase(null);
+    copyPhrase(phrase);
+  }, [pendingPhrase]);
+
   // Speak the composed phrase, then reset and return home — otherwise the
   // phrase stays live here and further double-taps append + respeak. The ref
   // guards against a second speak firing mid-playback.
@@ -152,12 +168,29 @@ export default function CommonScreen() {
     }
   }, []);
 
+  // Phrase-bar long-press menu: copy the composed phrase to the clipboard.
+  const handlePhraseCopy = useCallback(() => {
+    setPhraseMenuVisible(false);
+    const phrase = useCompositionStore.getState().getPhrase();
+    if (phrase) copyPhrase(phrase);
+  }, []);
+
+  // Phrase-bar long-press menu: save the composed phrase (wraps the swipe-up
+  // save handler; closes the menu first so the alert isn't behind the modal).
+  const handlePhraseSaveFromMenu = useCallback(() => {
+    setPhraseMenuVisible(false);
+    handlePhraseSave();
+  }, [handlePhraseSave]);
+
   const renderItem = useCallback(
     (item: WheelPickerItem, isFocused: boolean) => (
       <View style={styles.itemContent}>
-        <Text style={[styles.itemLabel, isFocused && styles.focusedLabel]}>
-          C{(item.metadata?.rank as number ?? 0) + 1}
-        </Text>
+        {/* C# index — dev-only; testers shouldn't see internal labels. */}
+        {__DEV__ && (
+          <Text style={[styles.itemLabel, isFocused && styles.focusedLabel]}>
+            C{(item.metadata?.rank as number ?? 0) + 1}
+          </Text>
+        )}
         <Text
           style={isFocused ? styles.focusedText : styles.itemText}
           numberOfLines={3}
@@ -205,6 +238,7 @@ export default function CommonScreen() {
         onPhraseSave={handlePhraseSave}
         onPhraseNavigateUp={() => setSection('compose')}
         onPhraseSpeak={handlePhraseSpeak}
+        onPhraseLongPress={() => setPhraseMenuVisible(true)}
       />
 
       <Modal
@@ -222,9 +256,40 @@ export default function CommonScreen() {
               <Text style={styles.contextMenuText}>Compose</Text>
               <Text style={styles.contextMenuHint}>Add to this phrase with predictions</Text>
             </Pressable>
+            <Pressable style={styles.contextMenuItem} onPress={handleCopyItem}>
+              <Text style={styles.contextMenuText}>Copy</Text>
+              <Text style={styles.contextMenuHint}>Put this phrase on the clipboard</Text>
+            </Pressable>
             <Pressable
               style={[styles.contextMenuItem, styles.contextMenuCancel]}
               onPress={() => setContextMenuVisible(false)}
+            >
+              <Text style={styles.contextMenuCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Phrase-bar long-press: Save or Copy the composed phrase. */}
+      <Modal
+        visible={phraseMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPhraseMenuVisible(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setPhraseMenuVisible(false)}>
+          <View style={styles.contextMenu}>
+            <Pressable style={styles.contextMenuItem} onPress={handlePhraseSaveFromMenu}>
+              <Text style={styles.contextMenuText}>Save phrase</Text>
+              <Text style={styles.contextMenuHint}>Add it to your Saved list</Text>
+            </Pressable>
+            <Pressable style={styles.contextMenuItem} onPress={handlePhraseCopy}>
+              <Text style={styles.contextMenuText}>Copy</Text>
+              <Text style={styles.contextMenuHint}>Put the phrase on the clipboard</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.contextMenuItem, styles.contextMenuCancel]}
+              onPress={() => setPhraseMenuVisible(false)}
             >
               <Text style={styles.contextMenuCancelText}>Cancel</Text>
             </Pressable>
